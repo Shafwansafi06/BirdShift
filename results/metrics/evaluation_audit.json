@@ -1,0 +1,10 @@
+{
+  "checkpoint_sha256": "96f7aa0d17d9fc6b793529cf05be9680f8445ba670694599fa5df5b34f3b0352",
+  "checkpoint_epoch": 30,
+  "sample_count": 900,
+  "tensor_mismatch_count": 0,
+  "maximum_tensor_difference": 0.0,
+  "prediction_mismatch_count": 0,
+  "standard_top1": 0.7833333333333333,
+  "shift_original_top1": 0.7833333333333333
+}

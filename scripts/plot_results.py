@@ -1,0 +1,94 @@
+"""Plot training curves and result summaries into results/figures/.
+
+Run from repository root: python scripts/plot_results.py
+"""
+import csv
+import json
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+METRICS = Path("results/metrics")
+OUT = Path("results/figures")
+COLORS = {"Full-image": "#2563eb", "Bird-crop": "#f59e0b", "BirdShift": "#16a34a",
+          "Standard CE": "#2563eb", "Weighted sampler": "#f59e0b", "Class-balanced CE": "#16a34a"}
+
+
+def read_log(name):
+    with (METRICS / f"cub_{name}_training.csv").open() as f:
+        rows = list(csv.DictReader(f))
+    return {k: [float(r[k]) for r in rows] for k in rows[0]}
+
+
+def plot_curves(runs, title, path):
+    fig, (ax_loss, ax_acc) = plt.subplots(1, 2, figsize=(12, 4.5))
+    for label, log_name in runs.items():
+        log = read_log(log_name)
+        c = COLORS[label]
+        ax_loss.plot(log["epoch"], log["train_loss"], color=c, ls="--", alpha=.7)
+        ax_loss.plot(log["epoch"], log["val_loss"], color=c, label=label)
+        ax_acc.plot(log["epoch"], [a * 100 for a in log["train_accuracy"]], color=c, ls="--", alpha=.7)
+        ax_acc.plot(log["epoch"], [a * 100 for a in log["val_accuracy"]], color=c, label=label)
+        best = max(range(len(log["epoch"])), key=lambda i: log["val_accuracy"][i])
+        ax_acc.scatter(log["epoch"][best], log["val_accuracy"][best] * 100, color=c, zorder=3, s=30)
+    ax_loss.set(title="Cross-entropy loss", xlabel="Epoch", ylabel="Loss")
+    ax_acc.set(title="Top-1 accuracy", xlabel="Epoch", ylabel="Accuracy (%)")
+    for ax in (ax_loss, ax_acc):
+        ax.grid(alpha=.3)
+    ax_acc.legend(title="solid = val, dashed = train", loc="lower right")
+    fig.suptitle(title, fontweight="bold")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def grouped_bars(groups, series, ylabel, title, path, ylim=None):
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    width = 0.8 / len(series)
+    for i, (label, values) in enumerate(series.items()):
+        xs = [g + (i - (len(series) - 1) / 2) * width for g in range(len(groups))]
+        bars = ax.bar(xs, values, width, label=label, color=COLORS[label])
+        ax.bar_label(bars, fmt="%.1f", fontsize=8, padding=2)
+    ax.set_xticks(range(len(groups)), groups)
+    ax.set(ylabel=ylabel, title=title)
+    if ylim:
+        ax.set_ylim(*ylim)
+    ax.grid(axis="y", alpha=.3)
+    ax.legend(loc="upper right")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def main():
+    OUT.mkdir(parents=True, exist_ok=True)
+    plot_curves({"Full-image": "full", "Bird-crop": "crop", "BirdShift": "birdshift"},
+                "Experiment 1: training curves", OUT / "curves_background.png")
+    plot_curves({"Standard CE": "longtail_ce", "Weighted sampler": "longtail_sampler",
+                 "Class-balanced CE": "longtail_cb"},
+                "Experiment 2: training curves (long-tailed split)", OUT / "curves_longtail.png")
+
+    shift = json.loads(Path("results/background_shift/summary_val.json").read_text())
+    names = {"full": "Full-image", "crop": "Bird-crop", "birdshift": "BirdShift"}
+    conds = ["original", "blur", "replace"]
+    grouped_bars(["Original", "Blurred BG", "Replaced BG"],
+                 {names[m]: [next(r["top1_accuracy"] * 100 for r in shift
+                                  if r["model"] == m and r["shift"] == c) for c in conds]
+                  for m in names},
+                 "Top-1 accuracy (%)", "Background shift, CUB val (900 images)",
+                 OUT / "results_background.png", ylim=(74, 80.5))
+
+    lt = json.loads(Path("results/longtail/summary_val.json").read_text())
+    keys = ["head_accuracy", "medium_accuracy", "tail_accuracy", "top1_accuracy"]
+    grouped_bars(["Head", "Medium", "Tail", "Overall"],
+                 {("Weighted sampler" if r["method"] == "Weighted sampling" else r["method"]):
+                  [r[k] * 100 for k in keys] for r in lt},
+                 "Top-1 accuracy (%)", "Long-tail methods by class frequency, CUB val",
+                 OUT / "results_longtail.png", ylim=(0, 95))
+    print("Saved:", *sorted(p.name for p in OUT.glob("*.png")))
+
+
+if __name__ == "__main__":
+    main()

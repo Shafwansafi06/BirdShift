@@ -1,0 +1,44 @@
+[
+  {
+    "method": "Standard CE",
+    "checkpoint": "checkpoints/longtail_ce/best.pth",
+    "epoch": 30,
+    "imbalance_ratio": 10.0,
+    "train_images": 2039,
+    "samples": 900,
+    "top1_accuracy": 0.53,
+    "top5_accuracy": 0.8333333333333334,
+    "macro_f1": 0.4770474490321004,
+    "head_accuracy": 0.8020477815699659,
+    "medium_accuracy": 0.5639344262295082,
+    "tail_accuracy": 0.23178807947019867
+  },
+  {
+    "method": "Weighted sampling",
+    "checkpoint": "checkpoints/longtail_sampler/best.pth",
+    "epoch": 30,
+    "imbalance_ratio": 10.0,
+    "train_images": 2039,
+    "samples": 900,
+    "top1_accuracy": 0.5977777777777777,
+    "top5_accuracy": 0.8466666666666667,
+    "macro_f1": 0.5707739482739482,
+    "head_accuracy": 0.7030716723549488,
+    "medium_accuracy": 0.6655737704918033,
+    "tail_accuracy": 0.4271523178807947
+  },
+  {
+    "method": "Class-balanced CE",
+    "checkpoint": "checkpoints/longtail_cb/best.pth",
+    "epoch": 29,
+    "imbalance_ratio": 10.0,
+    "train_images": 2039,
+    "samples": 900,
+    "top1_accuracy": 0.5933333333333334,
+    "top5_accuracy": 0.8588888888888889,
+    "macro_f1": 0.5631234043734044,
+    "head_accuracy": 0.7235494880546075,
+    "medium_accuracy": 0.6327868852459017,
+    "tail_accuracy": 0.4271523178807947
+  }
+]

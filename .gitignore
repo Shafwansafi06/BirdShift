@@ -1,0 +1,19 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Downloaded dataset (CUB-200-2011, ~2.3 GB incl. archive) — see README to re-download
+data/raw/
+*.tgz
+
+# Large / machine-specific files (each checkpoint is ~290 MB, over GitHub's 100 MB limit)
+.venv/
+checkpoints/
+archive/
+scripts/checkpoints/
+*.pth
+
+# Editor backups
+*.bak
+*.bak[0-9]
+.ipynb_checkpoints/

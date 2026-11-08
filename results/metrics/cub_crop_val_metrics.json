@@ -1,0 +1,9 @@
+{
+  "checkpoint": "checkpoints/crop/best.pth",
+  "mode": "crop",
+  "split": "val",
+  "samples": 900,
+  "top1_accuracy": 0.7788888888888889,
+  "top5_accuracy": 0.9422222222222222,
+  "macro_f1": 0.7691462148962148
+}
