@@ -1,0 +1,92 @@
+[
+  {
+    "model": "full",
+    "checkpoint": "checkpoints/baseline_448/best.pth",
+    "shift": "original",
+    "samples": 900,
+    "top1_accuracy": 0.7944444444444444,
+    "top5_accuracy": 0.9644444444444444,
+    "macro_f1": 0.7839131424131424,
+    "accuracy_drop_pp": 0.0
+  },
+  {
+    "model": "full",
+    "checkpoint": "checkpoints/baseline_448/best.pth",
+    "shift": "blur",
+    "samples": 900,
+    "top1_accuracy": 0.7922222222222223,
+    "top5_accuracy": 0.9611111111111111,
+    "macro_f1": 0.7832403707403708,
+    "accuracy_drop_pp": 0.2222
+  },
+  {
+    "model": "full",
+    "checkpoint": "checkpoints/baseline_448/best.pth",
+    "shift": "replace",
+    "samples": 900,
+    "top1_accuracy": 0.7833333333333333,
+    "top5_accuracy": 0.9566666666666667,
+    "macro_f1": 0.7737379728115021,
+    "accuracy_drop_pp": 1.1111
+  },
+  {
+    "model": "crop",
+    "checkpoint": "checkpoints/crop_448/best.pth",
+    "shift": "original",
+    "samples": 900,
+    "top1_accuracy": 0.8133333333333334,
+    "top5_accuracy": 0.9588888888888889,
+    "macro_f1": 0.8072796647796647,
+    "accuracy_drop_pp": 0.0
+  },
+  {
+    "model": "crop",
+    "checkpoint": "checkpoints/crop_448/best.pth",
+    "shift": "blur",
+    "samples": 900,
+    "top1_accuracy": 0.8133333333333334,
+    "top5_accuracy": 0.9588888888888889,
+    "macro_f1": 0.8072796647796647,
+    "accuracy_drop_pp": 0.0
+  },
+  {
+    "model": "crop",
+    "checkpoint": "checkpoints/crop_448/best.pth",
+    "shift": "replace",
+    "samples": 900,
+    "top1_accuracy": 0.8133333333333334,
+    "top5_accuracy": 0.9588888888888889,
+    "macro_f1": 0.8072796647796647,
+    "accuracy_drop_pp": 0.0
+  },
+  {
+    "model": "birdshift",
+    "checkpoint": "checkpoints/birdshift_448/best.pth",
+    "shift": "original",
+    "samples": 900,
+    "top1_accuracy": 0.7966666666666666,
+    "top5_accuracy": 0.9655555555555555,
+    "macro_f1": 0.7868248140748142,
+    "accuracy_drop_pp": 0.0
+  },
+  {
+    "model": "birdshift",
+    "checkpoint": "checkpoints/birdshift_448/best.pth",
+    "shift": "blur",
+    "samples": 900,
+    "top1_accuracy": 0.7955555555555556,
+    "top5_accuracy": 0.9666666666666667,
+    "macro_f1": 0.7872836052836053,
+    "accuracy_drop_pp": 0.1111
+  },
+  {
+    "model": "birdshift",
+    "checkpoint": "checkpoints/birdshift_448/best.pth",
+    "shift": "replace",
+    "samples": 900,
+    "top1_accuracy": 0.7944444444444444,
+    "top5_accuracy": 0.9644444444444444,
+    "macro_f1": 0.786387862137862,
+    "accuracy_drop_pp": 0.2222
+  }
+]

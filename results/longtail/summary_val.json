@@ -2,6 +2,7 @@
   {
     "method": "Standard CE",
     "checkpoint": "checkpoints/longtail_ce/best.pth",
+    "posthoc_tau": null,
     "epoch": 30,
     "imbalance_ratio": 10.0,
     "train_images": 2039,
@@ -16,6 +17,7 @@
   {
     "method": "Weighted sampling",
     "checkpoint": "checkpoints/longtail_sampler/best.pth",
+    "posthoc_tau": null,
     "epoch": 30,
     "imbalance_ratio": 10.0,
     "train_images": 2039,
@@ -30,6 +32,7 @@
   {
     "method": "Class-balanced CE",
     "checkpoint": "checkpoints/longtail_cb/best.pth",
+    "posthoc_tau": null,
     "epoch": 29,
     "imbalance_ratio": 10.0,
     "train_images": 2039,
@@ -40,5 +43,35 @@
     "head_accuracy": 0.7235494880546075,
     "medium_accuracy": 0.6327868852459017,
     "tail_accuracy": 0.4271523178807947
+  },
+  {
+    "method": "Logit-adjusted CE",
+    "checkpoint": "checkpoints/longtail_la/best.pth",
+    "posthoc_tau": null,
+    "epoch": 29,
+    "imbalance_ratio": 10.0,
+    "train_images": 2039,
+    "samples": 900,
+    "top1_accuracy": 0.6233333333333333,
+    "top5_accuracy": 0.8911111111111111,
+    "macro_f1": 0.5972471629247945,
+    "head_accuracy": 0.7337883959044369,
+    "medium_accuracy": 0.6426229508196721,
+    "tail_accuracy": 0.4966887417218543
+  },
+  {
+    "method": "CE + post-hoc logit adj.",
+    "checkpoint": "checkpoints/longtail_ce/best.pth",
+    "posthoc_tau": 1.0,
+    "epoch": 30,
+    "imbalance_ratio": 10.0,
+    "train_images": 2039,
+    "samples": 900,
+    "top1_accuracy": 0.5966666666666667,
+    "top5_accuracy": 0.8844444444444445,
+    "macro_f1": 0.5669178860355332,
+    "head_accuracy": 0.7474402730375427,
+    "medium_accuracy": 0.6360655737704918,
+    "tail_accuracy": 0.4105960264900662
   }
 ]

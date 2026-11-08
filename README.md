@@ -37,7 +37,7 @@ flowchart LR
     VA -.-> V1 & V2
 ```
 
-All six models share the same backbone (ImageNet-pretrained ResNet-50 with a 200-way head), optimiser (AdamW, lr 1e-4), batch size (64) and validation split (stratified, `random_state=42`).
+All models share the same backbone (ImageNet-pretrained ResNet-50 from `timm`, with a 200-way head), optimiser (AdamW, lr 1e-4), batch size (64), 30 epochs and validation split (stratified, `random_state=42`). The main runs use 224 px images; Experiment 1 was repeated at 448 px with mixed precision.
 
 ---
 
@@ -53,6 +53,10 @@ Best checkpoint of each run, chosen by validation accuracy. "Val (training log)"
 | Long-tail, standard CE | 2,039 images | 30 / 30 | 53.00% | **53.00%** | `checkpoints/longtail_ce/best.pth` |
 | Long-tail, weighted sampler | 2,039 images | 30 / 30 | 59.89% | **59.78%** | `checkpoints/longtail_sampler/best.pth` |
 | Long-tail, class-balanced CE | 2,039 images | 29 / 30 | 59.33% | **59.33%** | `checkpoints/longtail_cb/best.pth` |
+| Long-tail, logit-adjusted CE | 2,039 images | 29 / 30 | 62.33% | **62.33%** | `checkpoints/longtail_la/best.pth` |
+| Full-image, 448 px | 5,094 images | 27 / 30 | 79.33% | **79.44%** | `checkpoints/baseline_448/best.pth` |
+| Bird-crop, 448 px | 5,094 images | 26 / 30 | 81.33% | **81.33%** | `checkpoints/crop_448/best.pth` |
+| BirdShift, 448 px | 5,094 images | 27 / 30 | 79.67% | **79.67%** | `checkpoints/birdshift_448/best.pth` |
 
 The long-tail runs see 60% fewer training images than the first three, so their absolute accuracy should only be compared with each other.
 
@@ -64,7 +68,11 @@ Dots mark the best validation epoch. The bird-crop model fits its training set a
 
 ![Experiment 2 training curves](results/figures/curves_longtail.png)
 
-With only 2,039 images the gap between train and validation loss is much larger. Standard CE ends with the highest validation loss, while both balancing methods keep it lower and finish 6 to 7 points higher in accuracy.
+With only 2,039 images the gap between train and validation loss is much larger. Standard CE ends with the highest validation loss. Logit-adjusted CE ends with the lowest validation loss and the highest accuracy.
+
+![Experiment 1 at 448 px training curves](results/figures/curves_background_448.png)
+
+At 448 px all three models finish 1 to 3.5 points above their 224 px versions. The bird-crop model gains the most, because a larger input shows more feather detail when the bird fills the frame.
 
 ---
 
@@ -137,6 +145,33 @@ Top-1 accuracy on the 900 validation images:
 
 These are controlled, synthetic shifts. They show the model leans less on background context; they don't yet show it generalises to new real-world habitats.
 
+### Repeated at 448 px
+
+Fine-grained bird papers usually train at 448×448 rather than 224×224 (Yang et al. 2018 report 84.5% for a plain ResNet-50 at 448 px). We retrained all three models at 448 px with float16 mixed precision (`--image-size 448 --amp`), keeping every other setting the same. Each 448 px run took about 12 minutes on an RTX 3090 (about 25 s per epoch).
+
+![Background shift results at 448 px](results/figures/results_background_448.png)
+
+| Model | Original | Blurred BG | Replaced BG | Change (blur) | Change (replace) | Gain over 224 px (original) |
+|---|---|---|---|---|---|---|
+| Full-image | 79.44% | 79.22% | 78.33% | −0.22 pp | −1.11 pp | +1.11 pp |
+| Bird-crop | **81.33%** | **81.33%** | **81.33%** | 0.00 pp | 0.00 pp | +3.44 pp |
+| **BirdShift** | 79.67% | 79.56% | 79.44% | **−0.11 pp** | **−0.23 pp** | +1.45 pp |
+
+<details>
+<summary><b>Macro-F1 at 448 px</b></summary>
+
+| Model | Original | Blurred BG | Replaced BG |
+|---|---|---|---|
+| Full-image | 0.784 | 0.783 | 0.774 |
+| Bird-crop | **0.807** | **0.807** | **0.807** |
+| BirdShift | 0.787 | 0.787 | 0.786 |
+
+</details>
+
+- Higher resolution helps every model, but our numbers stay below the 84.5% reported in the literature. Those papers use a different training recipe (typically SGD with a larger learning rate), which we have not tuned.
+- The same pattern holds as at 224 px: the full-image model drops most when the background is replaced (−1.11 pp, 10 images), BirdShift barely moves (−0.23 pp, 2 images), and BirdShift is ahead of the full-image model in all three conditions.
+- At 448 px the bird-crop model is the most accurate, but it still needs a bounding box at test time.
+
 ---
 
 ## Experiment 2: class imbalance
@@ -154,15 +189,19 @@ xychart-beta
 
 Class at rank *r* keeps `n_max · 10^(−r/199)` images (at least 1): 5,094 → 2,039 images, 26 down to 3 per class. The class order is a seeded random shuffle, because CUB labels are sorted by taxonomy and otherwise the "tail" would be a single bird family.
 
-### The three methods
+### The methods
 
 ```mermaid
 flowchart TB
-    LT["Long-tailed train set"] --> CE & WS & CB
+    LT["Long-tailed train set"] --> CE & WS & CB & LA
     CE["<b>Standard CE</b><br/>shuffle, plain cross-entropy"]
     WS["<b>Weighted sampler</b><br/>draw image i with prob ∝ 1 / n<sub>class(i)</sub><br/>every class seen equally often"]
     CB["<b>Class-balanced CE</b><br/>loss weight w<sub>c</sub> = (1 − β) / (1 − β<sup>n<sub>c</sub></sup>)<br/>β = 0.999 (Cui et al. 2019)"]
+    LA["<b>Logit-adjusted CE</b><br/>train on logits + τ · log π<sub>c</sub><br/>predict with raw logits, τ = 1<br/>(Menon et al. 2021)"]
+    CE --> PH["<b>CE + post-hoc logit adjustment</b><br/>no retraining: subtract τ · log π<sub>c</sub><br/>from the CE model's logits"]
 ```
+
+π<sub>c</sub> is the fraction of training images in class *c*. τ was fixed at 1, the value used in the paper, and was not tuned on the validation set.
 
 Head, medium and tail are the top, middle and bottom thirds of classes ranked by how many training images they kept.
 
@@ -174,13 +213,17 @@ Head, medium and tail are the top, middle and bottom thirds of classes ranked by
 |---|---|---|---|---|---|
 | Standard CE | 53.00% | 0.477 | **80.20%** | 56.39% | 23.18% |
 | Weighted sampler | **59.78%** | **0.571** | 70.31% | **66.56%** | **42.72%** |
-| Class-balanced CE | 59.33% | 0.563 | 72.35% | 63.28% | **42.72%** |
+| Class-balanced CE | 59.33% | 0.563 | 72.35% | 63.28% | 42.72% |
+| **Logit-adjusted CE** | **62.33%** | **0.597** | 73.38% | 64.26% | **49.67%** |
+| CE + post-hoc logit adj. | 59.67% | 0.567 | 74.74% | 63.61% | 41.06% |
 
 **Takeaways**
 
 - Plain cross-entropy is good on common classes and poor on rare ones (80% vs 23%).
-- Both balancing methods nearly double tail accuracy and add about 6.5 pp overall, at a cost of 8 to 10 pp on head classes.
-- Sampler and class-balanced loss end up within 0.5 pp of each other (about 4 images), so this run doesn't separate them.
+- Every balancing method raises overall accuracy by 6 to 9 points, mostly by helping rare classes, and every one gives up some head-class accuracy.
+- **Logit-adjusted CE is the best method here:** highest overall accuracy (+9.3 pp over CE), highest macro-F1 and the best tail accuracy (49.7%, more than double CE). It also loses less on head classes than the weighted sampler.
+- **Post-hoc logit adjustment needs no retraining** and still lifts the CE model from 53.0% to 59.7%, matching the sampler and class-balanced loss while keeping the most head-class accuracy (74.7%).
+- Sampler and class-balanced loss are within 0.5 pp of each other (about 4 images), so this run doesn't separate them.
 
 > **Caveat for both experiments.** Every number above comes from one training run (seed 42) on the 900-image validation split. A 1 pp gap is 9 images. Multi-seed runs, test-split numbers and paired significance tests are still to do. The official CUB test split has deliberately not been used yet, so it stays untouched until model selection is frozen.
 
@@ -207,10 +250,10 @@ Head, medium and tail are the top, middle and bottom thirds of classes ranked by
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install torch torchvision pandas scikit-learn pillow matplotlib
+pip install torch torchvision timm pandas scikit-learn pillow matplotlib
 ```
 
-Tested with Python 3.10, PyTorch 2.14 (CUDA 13), torchvision 0.29 on an RTX 3090.
+Tested with Python 3.10, PyTorch 2.14 (CUDA 13), torchvision 0.29, timm 1.0 on an RTX 3090.
 
 <details>
 <summary><b>Download the dataset</b></summary>
@@ -251,7 +294,18 @@ PYTHONPATH=src python scripts/train.py --mode crop      --epochs 30   # checkpoi
 PYTHONPATH=src python scripts/train.py --mode birdshift --epochs 30   # checkpoints/birdshift/
 
 PYTHONPATH=src python scripts/evaluate_shift.py --split val           # results/background_shift/
+
+# Same experiment at 448 px with mixed precision
+for m in full crop birdshift; do
+  PYTHONPATH=src python scripts/train.py --mode $m --epochs 30 --image-size 448 --amp \
+      --workers 8 --run-name ${m/full/baseline}_448
+done
+PYTHONPATH=src python scripts/evaluate_shift.py --split val --output results/background_shift_448 \
+    --full-checkpoint checkpoints/baseline_448/best.pth --crop-checkpoint checkpoints/crop_448/best.pth \
+    --birdshift-checkpoint checkpoints/birdshift_448/best.pth
 ```
+
+The evaluation script reads the image size from each checkpoint.
 
 </details>
 
@@ -259,7 +313,7 @@ PYTHONPATH=src python scripts/evaluate_shift.py --split val           # results/
 <summary><b>Experiment 2: train and evaluate</b></summary>
 
 ```bash
-for b in none sampler cb; do
+for b in none sampler cb la; do
   PYTHONPATH=src python scripts/train.py --mode full --epochs 30 \
       --imbalance-ratio 10 --balance $b --run-name longtail_${b/none/ce}
 done
@@ -267,7 +321,7 @@ done
 PYTHONPATH=src python scripts/evaluate_longtail.py --split val        # results/longtail/
 ```
 
-The three runs fit on one 24 GB GPU at the same time (about 20 s per epoch each).
+`evaluate_longtail.py` also reports post-hoc logit adjustment on the standard-CE checkpoint, so it needs no extra training. Three 224 px runs fit on one 24 GB GPU at the same time.
 
 </details>
 
@@ -279,8 +333,11 @@ The three runs fit on one 24 GB GPU at the same time (about 20 s per epoch each)
 | `--mode` | `full` | `full`, `crop` or `birdshift` |
 | `--suppression-prob` | `0.5` | BirdShift: probability of blurring a training image's background |
 | `--imbalance-ratio` | `1` | Long-tail training split, max/min class size (1 = original data) |
-| `--balance` | `none` | `none` (cross-entropy), `sampler` (WeightedRandomSampler), `cb` (class-balanced loss) |
+| `--balance` | `none` | `none` (cross-entropy), `sampler` (WeightedRandomSampler), `cb` (class-balanced loss), `la` (logit-adjusted loss) |
 | `--cb-beta` | `0.999` | β for class-balanced loss |
+| `--la-tau` | `1.0` | τ for logit-adjusted loss |
+| `--image-size` | `224` | Training and evaluation resolution; stored in the checkpoint |
+| `--amp` | off | float16 mixed precision with `channels_last` (about 2× less memory) |
 | `--run-name` | by mode | Folder under `checkpoints/` and name of the training log |
 | `--resume` | | Continue from a `last.pth`; `--epochs` is the total, not extra |
 | `--epochs` | `20` | |
@@ -299,6 +356,7 @@ Each run writes `best.pth` (best val accuracy) and `last.pth` to `checkpoints/<r
 PYTHONPATH=src python scripts/visualize_shift.py       # original / blur / replace triplets
 PYTHONPATH=src python scripts/visualize_birdshift.py   # BirdShift training samples
 PYTHONPATH=src python scripts/audit_evaluators.py      # evaluate.py and evaluate_shift.py agree
+python scripts/plot_results.py                         # all training-curve and result figures
 
 PYTHONPATH=src python tests/test_background.py         # bounding box is preserved by the shifts
 PYTHONPATH=src python tests/test_longtail.py           # long-tail split is deterministic, val untouched
@@ -350,6 +408,8 @@ BirdShift/
 - [x] Full-image, bird-crop and BirdShift models
 - [x] Controlled background-shift evaluation
 - [x] Class-imbalance comparison: cross-entropy, weighted sampler, class-balanced loss
+- [x] Logit adjustment, trained and post-hoc
+- [x] 448 px training with mixed precision
 - [ ] Test-split numbers, multiple seeds, paired significance tests
 - [ ] Geographic clustering of images
 - [ ] Background clustering of images
@@ -361,3 +421,9 @@ BirdShift/
 2. K. He, X. Zhang, S. Ren, J. Sun. *Deep Residual Learning for Image Recognition.* CVPR 2016.
 3. Y. Cui, M. Jia, T.-Y. Lin, Y. Song, S. Belongie. *Class-Balanced Loss Based on Effective Number of Samples.* CVPR 2019.
 4. K. Xiao, L. Engstrom, A. Ilyas, A. Madry. *Noise or Signal: The Role of Image Backgrounds in Object Recognition.* ICLR 2021.
+5. A. K. Menon, S. Jayasumana, A. S. Rawat, H. Jain, A. Veit, S. Kumar. *Long-Tail Learning via Logit Adjustment.* ICLR 2021.
+6. Z. Yang, T. Luo, D. Wang, Z. Hu, J. Gao, L. Wang. *Learning to Navigate for Fine-grained Classification.* ECCV 2018.
+7. P. Micikevicius et al. *Mixed Precision Training.* ICLR 2018.
+8. I. Loshchilov, F. Hutter. *Decoupled Weight Decay Regularization.* ICLR 2019.
+9. J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, L. Fei-Fei. *ImageNet: A Large-Scale Hierarchical Image Database.* CVPR 2009.
+10. R. Wightman. *PyTorch Image Models (timm).* GitHub, 2019.

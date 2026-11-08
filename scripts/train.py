@@ -42,8 +42,12 @@ def main():
     parser.add_argument("--resume", type=str, default="")
     parser.add_argument("--imbalance-ratio", type=float, default=1.0,
                         help="Long-tail train split: max/min class size (1 = original data)")
-    parser.add_argument("--balance", choices=["none", "sampler", "cb"], default="none",
-                        help="none=plain CE, sampler=WeightedRandomSampler, cb=class-balanced CE")
+    parser.add_argument("--balance", choices=["none", "sampler", "cb", "la"], default="none",
+                        help="none=plain CE, sampler=WeightedRandomSampler, cb=class-balanced CE, "
+                             "la=logit-adjusted CE (Menon et al. 2021)")
+    parser.add_argument("--la-tau", type=float, default=1.0)
+    parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument("--amp", action="store_true", help="float16 mixed precision + channels_last")
     parser.add_argument("--cb-beta", type=float, default=0.999)
     parser.add_argument("--run-name", default="",
                         help="Checkpoint/log name; defaults to the mode's directory")
@@ -57,8 +61,9 @@ def main():
 
     train_ds = CUBDataset(args.data_root, split="train", mode=args.mode,
                           suppression_prob=args.suppression_prob,
-                          imbalance_ratio=args.imbalance_ratio)
-    val_ds = CUBDataset(args.data_root, split="val", mode=args.mode)
+                          imbalance_ratio=args.imbalance_ratio,
+                          image_size=args.image_size)
+    val_ds = CUBDataset(args.data_root, split="val", mode=args.mode, image_size=args.image_size)
     loader_options = dict(batch_size=args.batch_size, num_workers=args.workers,
                           pin_memory=device.type == "cuda")
     labels = torch.tensor(train_ds.data["label"].values)
@@ -79,6 +84,13 @@ def main():
         weights = (1 - args.cb_beta) / (1 - args.cb_beta ** counts)
         weights = weights / weights.sum() * len(counts)
         train_criterion = nn.CrossEntropyLoss(weight=weights.to(device))
+    elif args.balance == "la":
+        # Logit-adjusted loss: train on logits + tau*log(prior); predict with raw logits.
+        log_prior = torch.log(counts / counts.sum()).to(device)
+        train_criterion = lambda logits, y: criterion(logits + args.la_tau * log_prior, y)
+    scaler = torch.amp.GradScaler(device.type) if args.amp else None
+    if args.amp:
+        model = model.to(memory_format=torch.channels_last)
     optimizer = AdamW(model.parameters(), lr=args.lr)
     run_dir = Path("checkpoints") / {
         "full": "baseline",
@@ -113,7 +125,7 @@ def main():
             writer.writeheader()
 
         for epoch in range(start_epoch, args.epochs):
-            train_metrics = train_one_epoch(model, train_loader, train_criterion, optimizer, device)
+            train_metrics = train_one_epoch(model, train_loader, train_criterion, optimizer, device, scaler)
             val_metrics = validate(model, val_loader, criterion, device)
             row = {
                 "epoch": epoch + 1,
@@ -144,6 +156,7 @@ def main():
                 "mode": args.mode,
                 "imbalance_ratio": args.imbalance_ratio,
                 "balance": args.balance,
+                "image_size": args.image_size,
             }
             torch.save(checkpoint, run_dir / "last.pth")
             if improved:

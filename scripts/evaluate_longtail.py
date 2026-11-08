@@ -15,11 +15,26 @@ from torch.utils.data import DataLoader
 from birdshift.datasets.cub import CUBDataset
 from evaluate_shift import evaluate, load_checkpoint  # same script dir
 
+# name -> (checkpoint, post-hoc logit adjustment tau or None)
 RUNS = {
-    "Standard CE": "checkpoints/longtail_ce/best.pth",
-    "Weighted sampling": "checkpoints/longtail_sampler/best.pth",
-    "Class-balanced CE": "checkpoints/longtail_cb/best.pth",
+    "Standard CE": ("checkpoints/longtail_ce/best.pth", None),
+    "Weighted sampling": ("checkpoints/longtail_sampler/best.pth", None),
+    "Class-balanced CE": ("checkpoints/longtail_cb/best.pth", None),
+    "Logit-adjusted CE": ("checkpoints/longtail_la/best.pth", None),
+    "CE + post-hoc logit adj.": ("checkpoints/longtail_ce/best.pth", 1.0),
 }
+
+
+class PosthocLogitAdjust(torch.nn.Module):
+    """Menon et al. 2021: subtract tau*log(class prior) from a trained model's logits."""
+
+    def __init__(self, model, log_prior, tau):
+        super().__init__()
+        self.model, self.tau = model, tau
+        self.register_buffer("log_prior", log_prior)
+
+    def forward(self, x):
+        return self.model(x) - self.tau * self.log_prior
 
 
 def class_groups(root, ratio):
@@ -51,19 +66,24 @@ def main():
     loader = DataLoader(data, batch_size=args.batch_size, shuffle=False,
                         num_workers=args.workers, pin_memory=device.type == "cuda")
     summaries, ratios = [], set()
-    for name, path in RUNS.items():
+    for name, (path, tau) in RUNS.items():
         ckpt = torch.load(path, map_location="cpu", weights_only=True)
         ratio = ckpt["imbalance_ratio"]
         ratios.add(ratio)
         groups, counts = class_groups(args.data_root, ratio)
-        rows, metrics = evaluate(load_checkpoint(path, "full", device), loader, device)
+        model = load_checkpoint(path, "full", device)
+        if tau is not None:
+            prior = torch.tensor([counts.get(c, 0) for c in range(200)], dtype=torch.float)
+            model = PosthocLogitAdjust(model, torch.log(prior / prior.sum()), tau).to(device)
+        rows, metrics = evaluate(model, loader, device)
         summaries.append({
-            "method": name, "checkpoint": path, "epoch": ckpt["epoch"],
+            "method": name, "checkpoint": path, "posthoc_tau": tau, "epoch": ckpt["epoch"],
             "imbalance_ratio": ratio, "train_images": int(counts.sum()),
             **metrics,
             **{f"{g}_accuracy": group_accuracy(rows, c) for g, c in groups.items()},
         })
-        with (output / f"{Path(path).parent.name}_{args.split}_predictions.csv").open("w", newline="") as f:
+        stem = Path(path).parent.name + ("_posthoc_la" if tau is not None else "")
+        with (output / f"{stem}_{args.split}_predictions.csv").open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0]))
             writer.writeheader()
             writer.writerows(rows)

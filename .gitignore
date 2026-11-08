@@ -17,3 +17,4 @@ scripts/checkpoints/
 *.bak
 *.bak[0-9]
 .ipynb_checkpoints/
+results/logs/*.status

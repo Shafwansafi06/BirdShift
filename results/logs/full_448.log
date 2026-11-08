@@ -1,0 +1,61 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Device: cuda
+Train images: 5094 | per-class max=26 min=25
+Epoch 1/30 | Train Loss: 5.2902 | Train Acc: 0.0065 | Val Loss: 5.2594 | Val Acc: 0.0189
+Saved best model! Accuracy: 1.89%
+[W1108 17:22:26.201477934 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 822083584 bytes (free: 754778112, total: 25286672384).
+Epoch 2/30 | Train Loss: 5.2121 | Train Acc: 0.0304 | Val Loss: 5.0926 | Val Acc: 0.0867
+Saved best model! Accuracy: 8.67%
+Epoch 3/30 | Train Loss: 4.9325 | Train Acc: 0.1025 | Val Loss: 4.3953 | Val Acc: 0.1867
+Saved best model! Accuracy: 18.67%
+Epoch 4/30 | Train Loss: 4.2836 | Train Acc: 0.2281 | Val Loss: 3.4875 | Val Acc: 0.3289
+Saved best model! Accuracy: 32.89%
+Epoch 5/30 | Train Loss: 3.5825 | Train Acc: 0.3180 | Val Loss: 2.8579 | Val Acc: 0.4578
+Saved best model! Accuracy: 45.78%
+Epoch 6/30 | Train Loss: 3.0558 | Train Acc: 0.4211 | Val Loss: 2.3494 | Val Acc: 0.5178
+Saved best model! Accuracy: 51.78%
+Epoch 7/30 | Train Loss: 2.6540 | Train Acc: 0.4988 | Val Loss: 2.0608 | Val Acc: 0.5767
+Saved best model! Accuracy: 57.67%
+Epoch 8/30 | Train Loss: 2.3628 | Train Acc: 0.5414 | Val Loss: 1.7784 | Val Acc: 0.6289
+Saved best model! Accuracy: 62.89%
+Epoch 9/30 | Train Loss: 2.1099 | Train Acc: 0.5946 | Val Loss: 1.6495 | Val Acc: 0.6311
+Saved best model! Accuracy: 63.11%
+Epoch 10/30 | Train Loss: 1.9363 | Train Acc: 0.6176 | Val Loss: 1.4554 | Val Acc: 0.6744
+Saved best model! Accuracy: 67.44%
+Epoch 11/30 | Train Loss: 1.7659 | Train Acc: 0.6466 | Val Loss: 1.3428 | Val Acc: 0.7000
+Saved best model! Accuracy: 70.00%
+Epoch 12/30 | Train Loss: 1.6147 | Train Acc: 0.6680 | Val Loss: 1.2726 | Val Acc: 0.7056
+Saved best model! Accuracy: 70.56%
+Epoch 13/30 | Train Loss: 1.5087 | Train Acc: 0.6959 | Val Loss: 1.1789 | Val Acc: 0.7167
+Saved best model! Accuracy: 71.67%
+Epoch 14/30 | Train Loss: 1.4128 | Train Acc: 0.7150 | Val Loss: 1.1096 | Val Acc: 0.7222
+Saved best model! Accuracy: 72.22%
+Epoch 15/30 | Train Loss: 1.3315 | Train Acc: 0.7248 | Val Loss: 1.0309 | Val Acc: 0.7367
+Saved best model! Accuracy: 73.67%
+Epoch 16/30 | Train Loss: 1.2730 | Train Acc: 0.7297 | Val Loss: 0.9832 | Val Acc: 0.7511
+Saved best model! Accuracy: 75.11%
+Epoch 17/30 | Train Loss: 1.1895 | Train Acc: 0.7501 | Val Loss: 0.9538 | Val Acc: 0.7489
+Epoch 18/30 | Train Loss: 1.1194 | Train Acc: 0.7670 | Val Loss: 0.9180 | Val Acc: 0.7744
+Saved best model! Accuracy: 77.44%
+Epoch 19/30 | Train Loss: 1.0729 | Train Acc: 0.7709 | Val Loss: 0.8930 | Val Acc: 0.7744
+Epoch 20/30 | Train Loss: 1.0093 | Train Acc: 0.7896 | Val Loss: 0.8496 | Val Acc: 0.7756
+Saved best model! Accuracy: 77.56%
+Epoch 21/30 | Train Loss: 0.9698 | Train Acc: 0.7931 | Val Loss: 0.8229 | Val Acc: 0.7733
+Epoch 22/30 | Train Loss: 0.9375 | Train Acc: 0.7951 | Val Loss: 0.8179 | Val Acc: 0.7767
+Saved best model! Accuracy: 77.67%
+Epoch 23/30 | Train Loss: 0.9195 | Train Acc: 0.8057 | Val Loss: 0.7956 | Val Acc: 0.7833
+Saved best model! Accuracy: 78.33%
+Epoch 24/30 | Train Loss: 0.8539 | Train Acc: 0.8221 | Val Loss: 0.7893 | Val Acc: 0.7867
+Saved best model! Accuracy: 78.67%
+Epoch 25/30 | Train Loss: 0.8476 | Train Acc: 0.8208 | Val Loss: 0.7574 | Val Acc: 0.7900
+Saved best model! Accuracy: 79.00%
+Epoch 26/30 | Train Loss: 0.8162 | Train Acc: 0.8235 | Val Loss: 0.7510 | Val Acc: 0.7922
+Saved best model! Accuracy: 79.22%
+Epoch 27/30 | Train Loss: 0.8125 | Train Acc: 0.8292 | Val Loss: 0.7522 | Val Acc: 0.7933
+Saved best model! Accuracy: 79.33%
+Epoch 28/30 | Train Loss: 0.7900 | Train Acc: 0.8265 | Val Loss: 0.7314 | Val Acc: 0.7911
+Epoch 29/30 | Train Loss: 0.7635 | Train Acc: 0.8314 | Val Loss: 0.7141 | Val Acc: 0.7900
+Epoch 30/30 | Train Loss: 0.7294 | Train Acc: 0.8420 | Val Loss: 0.7332 | Val Acc: 0.7911
+Best validation accuracy: 79.33%
+Training log: results/metrics/cub_baseline_448_training.csv
+Checkpoints: checkpoints/baseline_448

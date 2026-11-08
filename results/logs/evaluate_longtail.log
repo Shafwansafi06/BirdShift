@@ -1,0 +1,8 @@
+| Method | Top-1 | Macro-F1 | Head acc | Medium acc | Tail acc |  (ratio 10, val)
+|---|---|---|---|---|---|
+| Standard CE | 53.00% | 0.477 | 80.20% | 56.39% | 23.18% |
+| Weighted sampling | 59.78% | 0.571 | 70.31% | 66.56% | 42.72% |
+| Class-balanced CE | 59.33% | 0.563 | 72.35% | 63.28% | 42.72% |
+| Logit-adjusted CE | 62.33% | 0.597 | 73.38% | 64.26% | 49.67% |
+| CE + post-hoc logit adj. | 59.67% | 0.567 | 74.74% | 63.61% | 41.06% |
+Saved files to /home/moonlab/Desktop/Shafwan_CV_project/BirdShift/results/longtail

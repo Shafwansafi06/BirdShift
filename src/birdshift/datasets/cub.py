@@ -101,7 +101,7 @@ class CUBDataset(Dataset):
         else:
             # Exact same evaluation pipeline as the full-image baseline.
             self.transform = transforms.Compose([
-                transforms.Resize(256), transforms.CenterCrop(image_size),
+                transforms.Resize(image_size * 8 // 7), transforms.CenterCrop(image_size),
                 transforms.ToTensor(), normalize,
             ])
 

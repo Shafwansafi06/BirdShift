@@ -1,0 +1,12 @@
+full      | original | top1=79.44% top5=96.44% f1=0.784
+full      | blur     | top1=79.22% top5=96.11% f1=0.783
+full      | replace  | top1=78.33% top5=95.67% f1=0.774
+crop      | original | top1=81.33% top5=95.89% f1=0.807
+crop      | blur     | top1=81.33% top5=95.89% f1=0.807
+crop      | replace  | top1=81.33% top5=95.89% f1=0.807
+birdshift | original | top1=79.67% top5=96.56% f1=0.787
+birdshift | blur     | top1=79.56% top5=96.67% f1=0.787
+birdshift | replace  | top1=79.44% top5=96.44% f1=0.786
+Crop invariant to blur: True
+Crop invariant to replace: True
+Saved files to /home/moonlab/Desktop/Shafwan_CV_project/BirdShift/results/background_shift_448

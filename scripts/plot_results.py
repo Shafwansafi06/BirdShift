@@ -13,7 +13,8 @@ import matplotlib.pyplot as plt
 METRICS = Path("results/metrics")
 OUT = Path("results/figures")
 COLORS = {"Full-image": "#2563eb", "Bird-crop": "#f59e0b", "BirdShift": "#16a34a",
-          "Standard CE": "#2563eb", "Weighted sampler": "#f59e0b", "Class-balanced CE": "#16a34a"}
+          "Standard CE": "#2563eb", "Weighted sampler": "#f59e0b", "Class-balanced CE": "#16a34a",
+          "Logit-adjusted CE": "#dc2626", "CE + post-hoc LA": "#9333ea"}
 
 
 def read_log(name):
@@ -45,12 +46,12 @@ def plot_curves(runs, title, path):
 
 
 def grouped_bars(groups, series, ylabel, title, path, ylim=None):
-    fig, ax = plt.subplots(figsize=(9, 4.5))
+    fig, ax = plt.subplots(figsize=(10, 4.8))
     width = 0.8 / len(series)
     for i, (label, values) in enumerate(series.items()):
         xs = [g + (i - (len(series) - 1) / 2) * width for g in range(len(groups))]
         bars = ax.bar(xs, values, width, label=label, color=COLORS[label])
-        ax.bar_label(bars, fmt="%.1f", fontsize=8, padding=2)
+        ax.bar_label(bars, fmt="%.1f", fontsize=7, padding=2)
     ax.set_xticks(range(len(groups)), groups)
     ax.set(ylabel=ylabel, title=title)
     if ylim:
@@ -66,24 +67,29 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     plot_curves({"Full-image": "full", "Bird-crop": "crop", "BirdShift": "birdshift"},
                 "Experiment 1: training curves", OUT / "curves_background.png")
+    plot_curves({"Full-image": "baseline_448", "Bird-crop": "crop_448", "BirdShift": "birdshift_448"},
+                "Experiment 1 at 448 px (mixed precision): training curves", OUT / "curves_background_448.png")
     plot_curves({"Standard CE": "longtail_ce", "Weighted sampler": "longtail_sampler",
-                 "Class-balanced CE": "longtail_cb"},
+                 "Class-balanced CE": "longtail_cb", "Logit-adjusted CE": "longtail_la"},
                 "Experiment 2: training curves (long-tailed split)", OUT / "curves_longtail.png")
 
-    shift = json.loads(Path("results/background_shift/summary_val.json").read_text())
     names = {"full": "Full-image", "crop": "Bird-crop", "birdshift": "BirdShift"}
     conds = ["original", "blur", "replace"]
-    grouped_bars(["Original", "Blurred BG", "Replaced BG"],
-                 {names[m]: [next(r["top1_accuracy"] * 100 for r in shift
-                                  if r["model"] == m and r["shift"] == c) for c in conds]
-                  for m in names},
-                 "Top-1 accuracy (%)", "Background shift, CUB val (900 images)",
-                 OUT / "results_background.png", ylim=(74, 80.5))
+    for folder, suffix, res, ylim in (("background_shift", "", "224 px", (74, 80.5)),
+                                       ("background_shift_448", "_448", "448 px", (76, 83))):
+        shift = json.loads(Path(f"results/{folder}/summary_val.json").read_text())
+        grouped_bars(["Original", "Blurred BG", "Replaced BG"],
+                     {names[m]: [next(r["top1_accuracy"] * 100 for r in shift
+                                      if r["model"] == m and r["shift"] == c) for c in conds]
+                      for m in names},
+                     "Top-1 accuracy (%)", f"Background shift at {res}, CUB val (900 images)",
+                     OUT / f"results_background{suffix}.png", ylim=ylim)
 
     lt = json.loads(Path("results/longtail/summary_val.json").read_text())
     keys = ["head_accuracy", "medium_accuracy", "tail_accuracy", "top1_accuracy"]
     grouped_bars(["Head", "Medium", "Tail", "Overall"],
-                 {("Weighted sampler" if r["method"] == "Weighted sampling" else r["method"]):
+                 {{"Weighted sampling": "Weighted sampler",
+                   "CE + post-hoc logit adj.": "CE + post-hoc LA"}.get(r["method"], r["method"]):
                   [r[k] * 100 for k in keys] for r in lt},
                  "Top-1 accuracy (%)", "Long-tail methods by class frequency, CUB val",
                  OUT / "results_longtail.png", ylim=(0, 95))

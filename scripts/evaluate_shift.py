@@ -20,7 +20,7 @@ from birdshift.transforms.background import background_variant, bbox_to_pixels, 
 
 
 class ShiftedCUBDataset(Dataset):
-    def __init__(self, root, split, mode, shift, blur_radius=22):
+    def __init__(self, root, split, mode, shift, blur_radius=22, image_size=224):
         if mode not in ("full", "crop"):
             raise ValueError("mode must be full or crop")
         if shift not in ("original", "blur", "replace"):
@@ -33,11 +33,11 @@ class ShiftedCUBDataset(Dataset):
         norm = transforms.Normalize(mean=[.485, .456, .406], std=[.229, .224, .225])
         if mode == "crop":
             self.preprocess = transforms.Compose([
-                SquarePad(), transforms.Resize((224, 224)), transforms.ToTensor(), norm
+                SquarePad(), transforms.Resize((image_size, image_size)), transforms.ToTensor(), norm
             ])
         else:
             self.preprocess = transforms.Compose([
-                transforms.Resize(256), transforms.CenterCrop(224),
+                transforms.Resize(image_size * 8 // 7), transforms.CenterCrop(image_size),
                 transforms.ToTensor(), norm
             ])
 
@@ -71,6 +71,7 @@ def load_checkpoint(path, mode, device):
         raise ValueError(f"Checkpoint mode={saved_mode!r}, requested mode={mode!r}")
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
+    model.image_size = checkpoint.get("image_size", 224)
     return model
 
 
@@ -128,7 +129,8 @@ def main():
     for model_name, path, mode in models:
         model = load_checkpoint(path, model_name, device)  # model_name matches checkpoint's saved mode
         for shift in ("original", "blur", "replace"):
-            data = ShiftedCUBDataset(args.data_root, args.split, mode, shift, args.blur_radius)
+            data = ShiftedCUBDataset(args.data_root, args.split, mode, shift, args.blur_radius,
+                                     image_size=model.image_size)
             loader = DataLoader(data, batch_size=args.batch_size, shuffle=False,
                                 num_workers=args.workers, pin_memory=device.type == "cuda")
             predictions, metrics = evaluate(model, loader, device)
