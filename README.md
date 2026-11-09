@@ -176,22 +176,40 @@ Fine-grained bird papers usually train at 448×448 rather than 224×224 (Yang et
 
 ### Matching the published ResNet-50 number
 
-Fine-grained papers report about **84.5%** test accuracy for a plain ResNet-50 at 448 px on CUB [6]. Our 448 px full-image model reached 80.38% on test, so we compared training recipes one change at a time. All four runs use the full-image model at 448 px with mixed precision. The recipe was picked on val; the test split was evaluated once at the end.
+Fine-grained papers report about **84.5%** test accuracy for a plain ResNet-50 at 448 px on CUB [6, 16]. Our 448 px full-image model reached 80.38% on test, so we compared training recipes one change at a time. All four runs use the full-image model at 448 px with mixed precision. The recipe was picked on val; the test split was evaluated once at the end.
 
 | Run | Optimizer | Pretrained weights | Train crop | LR schedule | Epochs | Val | Test (5,794) |
 |---|---|---|---|---|---|---|---|
 | Old recipe (`baseline_448`) | AdamW 1e-4 | timm `a1_in1k` | RandomResizedCrop | constant | 30 | 79.33% | 80.38% |
-| `recipe_adamw` | AdamW 1e-4 | timm `a1_in1k` | Resize 512 + RandomCrop 448 | cosine | 50 | 79.44% | 80.74% |
+| `recipe_adamw` | AdamW 1e-4 | timm `a1_in1k` | Resize 512 + RandomCrop 448 | cosine [13] | 50 | 79.44% | 80.74% |
 | `recipe_sgd` | SGD 0.01, head ×10 | timm `a1_in1k` | Resize 512 + RandomCrop 448 | cosine | 50 | 75.00% | 76.08% |
-| `recipe_sgd_tv` | SGD 0.01, head ×10 | torchvision `tv_in1k` | Resize 512 + RandomCrop 448 | cosine | 50 | **84.00%** | **83.88%** |
+| `recipe_sgd_tv` | SGD 0.01, head ×10 [14] | torchvision `tv_in1k` [15] | Resize 512 + RandomCrop 448 | cosine | 50 | **84.00%** | **83.88%** |
 | `final_sgd_tv` | same as above, trained on train + val (5,994 images), last epoch | | | | 50 | n/a | **84.55%** |
 
 ![Training recipe search curves](results/figures/curves_recipe.png)
 
-- **The pretrained weights were the biggest factor (+7.8 pp test).** timm's default `resnet50` weights (`a1_in1k`) were trained with a heavy augmentation and BCE-loss recipe, and they fine-tune worse on CUB than the classic torchvision weights that the published baselines used.
+- **The pretrained weights were the biggest factor (+7.8 pp test).** timm's default `resnet50` weights (`a1_in1k`) were trained with a heavy augmentation and BCE-loss recipe [11], and they fine-tune worse on CUB than the classic torchvision weights [15] that the published baselines used. This matches Kornblith et al. [12], who found that ImageNet training choices which raise ImageNet accuracy can make features transfer worse to fine-grained datasets.
 - Changing the crop, schedule and epoch count with AdamW adds only 0.4 pp. SGD helps only together with the torchvision weights.
 - Training on all 5,994 official training images instead of holding 900 back adds the last 0.7 pp and **matches the published 84.5%**. That run has no held-out val, so it uses the last epoch, and it is reported on test only.
 - Per-run test numbers are in `results/metrics/test_accuracy.csv`. The background-shift and long-tail experiments above still use the old AdamW recipe; rerunning them with this recipe is on the roadmap.
+
+#### Download the trained model
+
+The 84.55% model is attached to the [v1.0 release](https://github.com/Shafwansafi06/BirdShift/releases/tag/v1.0) (96 MB, weights only, SHA-256 `a647b1bb...869c`).
+
+```bash
+gh release download v1.0 -R Shafwansafi06/BirdShift -p birdshift_resnet50_448_cub.pth
+```
+
+```python
+import torch
+from birdshift.models.resnet import BirdResNet
+
+ck = torch.load("birdshift_resnet50_448_cub.pth", map_location="cpu")
+model = BirdResNet(num_classes=200, pretrained=False)
+model.load_state_dict(ck["model_state_dict"])
+model.eval()  # inputs: Resize(512) + CenterCrop(448) + ImageNet normalisation
+```
 
 ---
 
@@ -470,3 +488,9 @@ BirdShift/
 8. I. Loshchilov, F. Hutter. *Decoupled Weight Decay Regularization.* ICLR 2019.
 9. J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, L. Fei-Fei. *ImageNet: A Large-Scale Hierarchical Image Database.* CVPR 2009.
 10. R. Wightman. *PyTorch Image Models (timm).* GitHub, 2019.
+11. R. Wightman, H. Touvron, H. Jégou. *ResNet Strikes Back: An Improved Training Procedure in timm.* NeurIPS 2021 Workshop on ImageNet: Past, Present, and Future.
+12. S. Kornblith, J. Shlens, Q. V. Le. *Do Better ImageNet Models Transfer Better?* CVPR 2019.
+13. I. Loshchilov, F. Hutter. *SGDR: Stochastic Gradient Descent with Warm Restarts.* ICLR 2017.
+14. I. Sutskever, J. Martens, G. Dahl, G. Hinton. *On the Importance of Initialization and Momentum in Deep Learning.* ICML 2013.
+15. A. Paszke et al. *PyTorch: An Imperative Style, High-Performance Deep Learning Library.* NeurIPS 2019 (torchvision ResNet-50 ImageNet weights).
+16. Z. Li, Y. Yang, X. Liu, F. Zhou, S. Wen, W. Xu. *Dynamic Computational Time for Visual Attention.* ICCV 2017 Workshops.
