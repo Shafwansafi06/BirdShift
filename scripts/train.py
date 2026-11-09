@@ -4,7 +4,8 @@ from pathlib import Path
 
 import torch
 from torch import nn
-from torch.optim import AdamW
+from torch.optim import SGD, AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from birdshift.datasets.cub import CUBDataset
@@ -49,6 +50,19 @@ def main():
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--amp", action="store_true", help="float16 mixed precision + channels_last")
     parser.add_argument("--cb-beta", type=float, default=0.999)
+    parser.add_argument("--train-split", choices=["train", "trainval"], default="train",
+                        help="trainval also trains on the val images; val accuracy is then not held out, use last.pth")
+    parser.add_argument("--optimizer", choices=["adamw", "sgd"], default="adamw")
+    parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--weight-decay", type=float, default=None,
+                        help="Default: 0.01 for AdamW (PyTorch default), 1e-4 for SGD")
+    parser.add_argument("--scheduler", choices=["none", "cosine"], default="none")
+    parser.add_argument("--head-lr-mult", type=float, default=1.0,
+                        help="Learning-rate multiplier for the new classification layer")
+    parser.add_argument("--train-aug", choices=["rrc", "fg"], default="rrc",
+                        help="rrc=RandomResizedCrop, fg=Resize+RandomCrop (fine-grained style)")
+    parser.add_argument("--weights", default="resnet50",
+                        help="timm pretrained weights, e.g. resnet50 or resnet50.tv_in1k")
     parser.add_argument("--run-name", default="",
                         help="Checkpoint/log name; defaults to the mode's directory")
     args = parser.parse_args()
@@ -59,10 +73,10 @@ def main():
         torch.backends.cudnn.benchmark = True
     print("Device:", device)
 
-    train_ds = CUBDataset(args.data_root, split="train", mode=args.mode,
+    train_ds = CUBDataset(args.data_root, split=args.train_split, mode=args.mode,
                           suppression_prob=args.suppression_prob,
                           imbalance_ratio=args.imbalance_ratio,
-                          image_size=args.image_size)
+                          image_size=args.image_size, train_aug=args.train_aug)
     val_ds = CUBDataset(args.data_root, split="val", mode=args.mode, image_size=args.image_size)
     loader_options = dict(batch_size=args.batch_size, num_workers=args.workers,
                           pin_memory=device.type == "cuda")
@@ -76,7 +90,7 @@ def main():
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, **loader_options)
     val_loader = DataLoader(val_ds, shuffle=False, **loader_options)
 
-    model = BirdResNet(num_classes=200, pretrained=not bool(args.resume)).to(device)
+    model = BirdResNet(num_classes=200, pretrained=not bool(args.resume), weights=args.weights).to(device)
     criterion = nn.CrossEntropyLoss()
     train_criterion = criterion
     if args.balance == "cb":
@@ -91,7 +105,19 @@ def main():
     scaler = torch.amp.GradScaler(device.type) if args.amp else None
     if args.amp:
         model = model.to(memory_format=torch.channels_last)
-    optimizer = AdamW(model.parameters(), lr=args.lr)
+    head = list(model.backbone.get_classifier().parameters())
+    head_ids = {id(p) for p in head}
+    param_groups = [
+        {"params": [p for p in model.parameters() if id(p) not in head_ids], "lr": args.lr},
+        {"params": head, "lr": args.lr * args.head_lr_mult},
+    ]
+    if args.optimizer == "sgd":
+        wd = 1e-4 if args.weight_decay is None else args.weight_decay
+        optimizer = SGD(param_groups, lr=args.lr, momentum=args.momentum, weight_decay=wd, nesterov=True)
+    else:
+        wd = 0.01 if args.weight_decay is None else args.weight_decay
+        optimizer = AdamW(param_groups, lr=args.lr, weight_decay=wd)
+    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs) if args.scheduler == "cosine" else None
     run_dir = Path("checkpoints") / {
         "full": "baseline",
         "crop": "crop",
@@ -116,6 +142,8 @@ def main():
         if previous_mode is not None and previous_mode != args.mode:
             raise ValueError(f"Checkpoint mode={previous_mode}, requested mode={args.mode}")
         print(f"Resuming from epoch {start_epoch}; best validation accuracy {best_accuracy:.2%}")
+        for _ in range(start_epoch if scheduler else 0):
+            scheduler.step()
 
     fields = ["epoch", "train_loss", "train_accuracy", "val_loss", "val_accuracy"]
     append = bool(args.resume) and log_path.exists()
@@ -127,6 +155,8 @@ def main():
         for epoch in range(start_epoch, args.epochs):
             train_metrics = train_one_epoch(model, train_loader, train_criterion, optimizer, device, scaler)
             val_metrics = validate(model, val_loader, criterion, device)
+            if scheduler:
+                scheduler.step()
             row = {
                 "epoch": epoch + 1,
                 "train_loss": train_metrics["loss"],

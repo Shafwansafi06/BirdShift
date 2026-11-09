@@ -57,6 +57,8 @@ Best checkpoint of each run, chosen by validation accuracy. "Val (training log)"
 | Full-image, 448 px | 5,094 images | 27 / 30 | 79.33% | **79.44%** | `checkpoints/baseline_448/best.pth` |
 | Bird-crop, 448 px | 5,094 images | 26 / 30 | 81.33% | **81.33%** | `checkpoints/crop_448/best.pth` |
 | BirdShift, 448 px | 5,094 images | 27 / 30 | 79.67% | **79.67%** | `checkpoints/birdshift_448/best.pth` |
+| Full-image, 448 px, SGD recipe | 5,094 images | 45 / 50 | 84.00% | **84.00%** | `checkpoints/recipe_sgd_tv/best.pth` |
+| Full-image, 448 px, SGD recipe, final | 5,994 images (train + val) | 50 / 50 | n/a | n/a, **84.55% test** | `checkpoints/final_sgd_tv/last.pth` |
 
 The long-tail runs see 60% fewer training images than the first three, so their absolute accuracy should only be compared with each other.
 
@@ -168,9 +170,28 @@ Fine-grained bird papers usually train at 448×448 rather than 224×224 (Yang et
 
 </details>
 
-- Higher resolution helps every model, but our numbers stay below the 84.5% reported in the literature. Those papers use a different training recipe (typically SGD with a larger learning rate), which we have not tuned.
+- Higher resolution helps every model, but with our AdamW recipe the numbers stay below the 84.5% reported in the literature. The next section closes that gap.
 - The same pattern holds as at 224 px: the full-image model drops most when the background is replaced (−1.11 pp, 10 images), BirdShift barely moves (−0.23 pp, 2 images), and BirdShift is ahead of the full-image model in all three conditions.
 - At 448 px the bird-crop model is the most accurate, but it still needs a bounding box at test time.
+
+### Matching the published ResNet-50 number
+
+Fine-grained papers report about **84.5%** test accuracy for a plain ResNet-50 at 448 px on CUB [6]. Our 448 px full-image model reached 80.38% on test, so we compared training recipes one change at a time. All four runs use the full-image model at 448 px with mixed precision. The recipe was picked on val; the test split was evaluated once at the end.
+
+| Run | Optimizer | Pretrained weights | Train crop | LR schedule | Epochs | Val | Test (5,794) |
+|---|---|---|---|---|---|---|---|
+| Old recipe (`baseline_448`) | AdamW 1e-4 | timm `a1_in1k` | RandomResizedCrop | constant | 30 | 79.33% | 80.38% |
+| `recipe_adamw` | AdamW 1e-4 | timm `a1_in1k` | Resize 512 + RandomCrop 448 | cosine | 50 | 79.44% | 80.74% |
+| `recipe_sgd` | SGD 0.01, head ×10 | timm `a1_in1k` | Resize 512 + RandomCrop 448 | cosine | 50 | 75.00% | 76.08% |
+| `recipe_sgd_tv` | SGD 0.01, head ×10 | torchvision `tv_in1k` | Resize 512 + RandomCrop 448 | cosine | 50 | **84.00%** | **83.88%** |
+| `final_sgd_tv` | same as above, trained on train + val (5,994 images), last epoch | | | | 50 | n/a | **84.55%** |
+
+![Training recipe search curves](results/figures/curves_recipe.png)
+
+- **The pretrained weights were the biggest factor (+7.8 pp test).** timm's default `resnet50` weights (`a1_in1k`) were trained with a heavy augmentation and BCE-loss recipe, and they fine-tune worse on CUB than the classic torchvision weights that the published baselines used.
+- Changing the crop, schedule and epoch count with AdamW adds only 0.4 pp. SGD helps only together with the torchvision weights.
+- Training on all 5,994 official training images instead of holding 900 back adds the last 0.7 pp and **matches the published 84.5%**. That run has no held-out val, so it uses the last epoch, and it is reported on test only.
+- Per-run test numbers are in `results/metrics/test_accuracy.csv`. The background-shift and long-tail experiments above still use the old AdamW recipe; rerunning them with this recipe is on the roadmap.
 
 ---
 
@@ -225,7 +246,7 @@ Head, medium and tail are the top, middle and bottom thirds of classes ranked by
 - **Post-hoc logit adjustment needs no retraining** and still lifts the CE model from 53.0% to 59.7%, matching the sampler and class-balanced loss while keeping the most head-class accuracy (74.7%).
 - Sampler and class-balanced loss are within 0.5 pp of each other (about 4 images), so this run doesn't separate them.
 
-> **Caveat for both experiments.** Every number above comes from one training run (seed 42) on the 900-image validation split. A 1 pp gap is 9 images. Multi-seed runs, test-split numbers and paired significance tests are still to do. The official CUB test split has deliberately not been used yet, so it stays untouched until model selection is frozen.
+> **Caveat for both experiments.** Every number above comes from one training run (seed 42) on the 900-image validation split. A 1 pp gap is 9 images. Multi-seed runs and paired significance tests are still to do. The official CUB test split has been used once, only for the training-recipe comparison in [Matching the published ResNet-50 number](#matching-the-published-resnet-50-number), after the recipe had been chosen on val.
 
 ---
 
@@ -243,6 +264,7 @@ Head, medium and tail are the top, middle and bottom thirds of classes ranked by
 | 8 | **PyTorch crashed under the system Python.** | `A module that was compiled using NumPy 1.x cannot be run in NumPy 2.2.6`. | All work runs inside the project virtual environment (`.venv`). |
 | 9 | **CUB is too balanced to test imbalance methods.** About 25 to 30 training images per species. | Balancing would have little to correct. | Built an exponential long-tail training split (10:1). Classes are shuffled with a fixed seed first, because CUB labels are sorted by taxonomy and the tail would otherwise be one bird family. |
 | 10 | **Training log and evaluation differ by one image** (59.89% vs 59.78%, 78.33% vs 78.22%). | Comparing logs with evaluation output. | Most likely GPU nondeterminism (`cudnn.benchmark` is on during training) flipping one near-tie prediction. All results tables use the evaluation-script numbers. |
+| 11 | **Stuck about 4 points below the published ResNet-50 baseline at 448 px.** | 80.4% test against 84.5% in the literature. | Ablated one change at a time. The cause was timm's default `a1_in1k` weights; switching to torchvision weights with SGD, cosine LR and a 10× head learning rate gave 83.9%, and training on train + val gave **84.55%**. |
 
 ---
 
@@ -307,6 +329,17 @@ PYTHONPATH=src python scripts/evaluate_shift.py --split val --output results/bac
 
 The evaluation script reads the image size from each checkpoint.
 
+```bash
+# Recipe that matches the published ResNet-50 number (84.55% test)
+PYTHONPATH=src python scripts/train.py --mode full --epochs 50 --image-size 448 --amp --workers 8 \
+    --train-aug fg --scheduler cosine --optimizer sgd --lr 0.01 --head-lr-mult 10 \
+    --weights resnet50.tv_in1k --train-split trainval --run-name final_sgd_tv
+cp checkpoints/final_sgd_tv/last.pth checkpoints/final_sgd_tv/best.pth
+PYTHONPATH=src python scripts/eval_test.py final_sgd_tv        # top-1 on the official test split
+```
+
+Drop `--train-split trainval` to keep the 900 val images held out (`recipe_sgd_tv`).
+
 </details>
 
 <details open>
@@ -338,6 +371,14 @@ PYTHONPATH=src python scripts/evaluate_longtail.py --split val        # results/
 | `--la-tau` | `1.0` | τ for logit-adjusted loss |
 | `--image-size` | `224` | Training and evaluation resolution; stored in the checkpoint |
 | `--amp` | off | float16 mixed precision with `channels_last` (about 2× less memory) |
+| `--optimizer` | `adamw` | `adamw` or `sgd` (Nesterov) |
+| `--weight-decay` | `0.01` / `1e-4` | Default depends on the optimizer |
+| `--momentum` | `0.9` | SGD momentum |
+| `--scheduler` | `none` | `none` or `cosine` (stepped once per epoch) |
+| `--head-lr-mult` | `1` | Learning-rate multiplier for the new 200-class layer |
+| `--train-aug` | `rrc` | `rrc` (RandomResizedCrop) or `fg` (Resize size·8/7 + RandomCrop) |
+| `--weights` | `resnet50` | timm pretrained weights, e.g. `resnet50.tv_in1k` |
+| `--train-split` | `train` | `trainval` also trains on the 900 val images (use `last.pth`) |
 | `--run-name` | by mode | Folder under `checkpoints/` and name of the training log |
 | `--resume` | | Continue from a `last.pth`; `--epochs` is the total, not extra |
 | `--epochs` | `20` | |
@@ -410,7 +451,9 @@ BirdShift/
 - [x] Class-imbalance comparison: cross-entropy, weighted sampler, class-balanced loss
 - [x] Logit adjustment, trained and post-hoc
 - [x] 448 px training with mixed precision
-- [ ] Test-split numbers, multiple seeds, paired significance tests
+- [x] Training recipe that matches the published ResNet-50 baseline (84.55% test)
+- [ ] Rerun the background-shift and long-tail experiments with the SGD recipe
+- [ ] Test-split numbers for every model, multiple seeds, paired significance tests
 - [ ] Geographic clustering of images
 - [ ] Background clustering of images
 - [ ] Train on some clusters, test on held-out clusters

@@ -14,7 +14,9 @@ METRICS = Path("results/metrics")
 OUT = Path("results/figures")
 COLORS = {"Full-image": "#2563eb", "Bird-crop": "#f59e0b", "BirdShift": "#16a34a",
           "Standard CE": "#2563eb", "Weighted sampler": "#f59e0b", "Class-balanced CE": "#16a34a",
-          "Logit-adjusted CE": "#dc2626", "CE + post-hoc LA": "#9333ea"}
+          "Logit-adjusted CE": "#dc2626", "CE + post-hoc LA": "#9333ea",
+          "AdamW (old recipe)": "#94a3b8", "AdamW + fg crop + cosine": "#2563eb",
+          "SGD, timm a1 weights": "#f59e0b", "SGD, torchvision weights": "#16a34a"}
 
 
 def read_log(name):
@@ -69,6 +71,9 @@ def main():
                 "Experiment 1: training curves", OUT / "curves_background.png")
     plot_curves({"Full-image": "baseline_448", "Bird-crop": "crop_448", "BirdShift": "birdshift_448"},
                 "Experiment 1 at 448 px (mixed precision): training curves", OUT / "curves_background_448.png")
+    plot_curves({"AdamW (old recipe)": "baseline_448", "AdamW + fg crop + cosine": "recipe_adamw",
+                 "SGD, timm a1 weights": "recipe_sgd", "SGD, torchvision weights": "recipe_sgd_tv"},
+                "Training recipe search, full-image model at 448 px", OUT / "curves_recipe.png")
     plot_curves({"Standard CE": "longtail_ce", "Weighted sampler": "longtail_sampler",
                  "Class-balanced CE": "longtail_cb", "Logit-adjusted CE": "longtail_la"},
                 "Experiment 2: training curves (long-tailed split)", OUT / "curves_longtail.png")

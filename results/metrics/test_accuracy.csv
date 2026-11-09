@@ -1,0 +1,6 @@
+run,train_images,epoch_used,val_accuracy,test_correct,test_total,test_accuracy
+baseline_448,5094,27,0.7933,4657,5794,0.8038
+recipe_adamw,5094,45,0.7944,4678,5794,0.8074
+recipe_sgd,5094,43,0.7500,4408,5794,0.7608
+recipe_sgd_tv,5094,45,0.8400,4860,5794,0.8388
+final_sgd_tv,5994,50,,4899,5794,0.8455

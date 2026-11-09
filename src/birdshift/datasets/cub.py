@@ -30,7 +30,7 @@ def make_long_tailed(df, ratio, seed=42):
 
 
 class CUBDataset(Dataset):
-    def __init__(self, root, split="train", mode="full", image_size=224, suppression_prob=0.5, suppression_kind="blur", blur_radius=22, imbalance_ratio=1.0):
+    def __init__(self, root, split="train", mode="full", image_size=224, suppression_prob=0.5, suppression_kind="blur", blur_radius=22, imbalance_ratio=1.0, train_aug="rrc"):
         self.root = Path(root)
         self.split = split
         self.mode = mode
@@ -65,10 +65,13 @@ class CUBDataset(Dataset):
             stratify=train_pool["label"],
             random_state=42,
         )
-        choices = {"train": train_df, "val": val_df, "test": test_df}
+        # trainval = all 5,994 official training images (final runs, no held-out val)
+        choices = {"train": train_df, "val": val_df, "test": test_df, "trainval": train_pool}
         if split not in choices:
-            raise ValueError("split must be train, val, or test")
+            raise ValueError("split must be train, val, test, or trainval")
         data = choices[split]
+        if split == "trainval":
+            split = self.split = "train"  # same augmentation as train
         if split == "train" and imbalance_ratio > 1:
             data = make_long_tailed(data, imbalance_ratio)
         self.data = data.reset_index(drop=True)
@@ -93,8 +96,15 @@ class CUBDataset(Dataset):
                 ])
         elif split == "train":
             # 'birdshift' and 'full' use the identical post-perturbation pipeline.
+            # rrc: ImageNet-style RandomResizedCrop (can keep only 8% of the image).
+            # fg: fine-grained style Resize(size*8/7) + RandomCrop(size), bird stays in frame.
+            if train_aug not in {"rrc", "fg"}:
+                raise ValueError("train_aug must be rrc or fg")
+            crop = (transforms.RandomResizedCrop(image_size) if train_aug == "rrc" else
+                    transforms.Compose([transforms.Resize(image_size * 8 // 7),
+                                        transforms.RandomCrop(image_size)]))
             self.transform = transforms.Compose([
-                transforms.RandomResizedCrop(image_size),
+                crop,
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(), normalize,
             ])
