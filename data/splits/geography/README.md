@@ -14,9 +14,10 @@ join. `observation_id` is the Open Data observation UUID (Open Data has no numer
 download script uses.
 
 **Clustering.** k-means with k=5 on 3-D unit vectors of (lat, lon), so distances are chord distances on the
-sphere (no dateline wrap, no polar distortion). Clusters are numbered west to east. Held-out clusters were chosen
-by species coverage only (the number of species with at least 5 test images and enough train images;
-ties broken by a test share near 25%), never by model accuracy. All candidates are in `heldout_search.csv`.
+sphere (no dateline wrap, no polar distortion). Clusters are numbered west to east. Held-out cluster(s) 0 were set by hand with `--held-out 0`. The automatic rule (most species with at least 5 test images and enough train images, test share 15 to 40%, ties broken by a share near 25%) would pick 0,2.
+Held-out clusters were never chosen by model accuracy. All candidates are in `heldout_search.csv`.
+We hold out cluster 0 alone (154 species instead of 158) because cluster 2 is a small, scattered mix of South America
+and Africa rather than one region, and adding it would make the test set two unrelated regions.
 A 100 km buffer around the held-out points is removed from train/val so the regions are cleanly
 disjoint (drawn in grey on the map).
 
@@ -35,8 +36,8 @@ the CUB labels, so the 200-way head is unchanged.
 
 | split | images | species |
 |---|---|---|
-| test | 19395 | 154 |
-| train | 31166 | 154 |
+| test | 19380 | 154 |
+| train | 31161 | 154 |
 | val | 5510 | 154 |
 
 Candidate images before filtering to surviving species and removing the buffer: 72440.
@@ -53,4 +54,6 @@ Run order (from the repo root): `build_species_map.py`, `prepare_inat_candidates
 - `species_map.csv` rows with `review=yes` need checking. White_necked_Raven (107) and Great_Grey_Shrike (111) matched
   Old World taxa and Winter_Wren (198) matched a taxon with no observations (iNaturalist now uses `Nannus hiemalis` / `Nannus pacificus`),
   so these three are not in the benchmark.
-- 5 photos appear under two observations by the same observer on the same day; both copies are always in the same split.
+- Some photos were uploaded to more than one observation. 7 of them carry different species labels (mixed flocks of
+  auklets or albatrosses posted once per species); these are dropped. 5 more repeat with the same label; one copy is kept.
+  Every photo now appears once, with one label (20 rows removed from the first version).

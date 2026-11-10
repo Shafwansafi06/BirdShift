@@ -130,6 +130,13 @@ def main():
     df["image_path"] = ["inat_geo/%04d/%s.%s" % (l + 1, p, e) for l, p, e in zip(df.label, df.photo_id, df.extension)]
     df["observation_id"] = df.observation_uuid
     df["license"] = df.license.str.lower()
+    # One photo can be uploaded to several observations (e.g. a mixed flock posted once per species).
+    # Drop photos with more than one label; keep one copy of same-label repeats.
+    n_labels = df.groupby("photo_id").label.nunique()
+    multi = set(n_labels[n_labels > 1].index)
+    n_before = len(df)
+    df = df[~df.photo_id.isin(multi)].drop_duplicates("photo_id")
+    print(f"dropped {len(multi)} photos with conflicting labels; {n_before - len(df)} rows removed in total")
     out = df[["image_path", "label", "species", "latitude", "longitude", "cluster_id", "split", "observation_id",
               "license", "photo_id", "extension", "photographer", "observer_id", "observed_on",
               "positional_accuracy"]].sort_values(["split", "label", "photo_id"])
@@ -157,6 +164,7 @@ def main():
     te = out[out.split == "test"]
     assert set(out.split) <= {"train", "val", "test"}
     assert out.observation_id.is_unique, "an observation appears more than once"
+    assert out.photo_id.is_unique and out.image_path.is_unique, "a photo appears more than once"
     assert set(tr.cluster_id).isdisjoint(set(te.cluster_id)), "cluster in both train/val and test"
     per_test_species = out[out.split == "train"].label.value_counts().reindex(sorted(set(te.label)))
     assert (per_test_species >= a.min_train).all(), "a test species has < min-train train images"
@@ -164,6 +172,7 @@ def main():
     print("\nVALIDATION")
     print("OK split values are only train/val/test")
     print("OK zero observation_id overlap between splits (every observation appears once)")
+    print("OK every photo appears once, with one label")
     print(f"OK every test species has >= {a.min_train} train images (min = {int(per_test_species.min())})")
     print(f"OK train/val and test use disjoint clusters; closest train/val-to-test pair is {gap:.0f} km apart")
     print(f"species surviving: {len(final)} of 200")
@@ -176,6 +185,14 @@ def main():
         f"{g.longitude.quantile(.02):.0f} to {g.longitude.quantile(.98):.0f} |"
         for c, g in allc.groupby("cluster_id"))
     cnt = "\n".join(f"| {s} | {len(g)} | {g.label.nunique()} |" for s, g in out.groupby("split"))
+    if a.held_out:
+        held_note = (f"Held-out cluster(s) {a.held_out} were set by hand with `--held-out {a.held_out}`. "
+                     f"The automatic rule (most species with at least {a.min_test} test images and enough train images, "
+                     f"test share 15 to 40%, ties broken by a share near 25%) would pick "
+                     f"{search[search.test_share.between(0.15, 0.40)].iloc[0].held_out}.")
+    else:
+        held_note = (f"Held-out clusters were chosen automatically by species coverage: the number of species with at "
+                     f"least {a.min_test} test images and enough train images, ties broken by a test share near 25%.")
     readme = f"""# Geographic held-out split (iNaturalist)
 
 **Source.** iNaturalist Open Data metadata snapshot `{a.snapshot}` (observations, photos, observers, taxa) and
@@ -192,9 +209,8 @@ join. `observation_id` is the Open Data observation UUID (Open Data has no numer
 download script uses.
 
 **Clustering.** k-means with k={a.k} on 3-D unit vectors of (lat, lon), so distances are chord distances on the
-sphere (no dateline wrap, no polar distortion). Clusters are numbered west to east. Held-out clusters were chosen
-by species coverage only (the number of species with at least {a.min_test} test images and enough train images;
-ties broken by a test share near 25%), never by model accuracy. All candidates are in `heldout_search.csv`.
+sphere (no dateline wrap, no polar distortion). Clusters are numbered west to east. {held_note}
+Held-out clusters were never chosen by model accuracy. All candidates are in `heldout_search.csv`.
 A {a.buffer_km:.0f} km buffer around the held-out points is removed from train/val so the regions are cleanly
 disjoint (drawn in grey on the map).
 
