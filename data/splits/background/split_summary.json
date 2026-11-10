@@ -1,0 +1,135 @@
+{
+  "k": 5,
+  "seed": 42,
+  "n_init": 10,
+  "val_fraction": 0.15,
+  "min_train_images": 10,
+  "held_out_clusters": [
+    0
+  ],
+  "clusters": [
+    {
+      "id": 0,
+      "name": "ground / grass",
+      "images": 2350,
+      "species": 196,
+      "mean_bg_fraction": 0.599,
+      "role": "test (held out)"
+    },
+    {
+      "id": 1,
+      "name": "dense foliage",
+      "images": 4120,
+      "species": 169,
+      "mean_bg_fraction": 0.663,
+      "role": "train / val"
+    },
+    {
+      "id": 2,
+      "name": "man-made / mixed perches",
+      "images": 2829,
+      "species": 199,
+      "mean_bg_fraction": 0.577,
+      "role": "train / val"
+    },
+    {
+      "id": 3,
+      "name": "plain sky / blurred backdrop",
+      "images": 1457,
+      "species": 194,
+      "mean_bg_fraction": 0.321,
+      "role": "train / val"
+    },
+    {
+      "id": 4,
+      "name": "water",
+      "images": 1032,
+      "species": 70,
+      "mean_bg_fraction": 0.656,
+      "role": "train / val"
+    }
+  ],
+  "splits_all_species": {
+    "train": {
+      "images": 8015,
+      "species": 200
+    },
+    "val": {
+      "images": 1423,
+      "species": 200
+    },
+    "test": {
+      "images": 2350,
+      "species": 196
+    }
+  },
+  "splits_kept_species": {
+    "train": {
+      "images": 8015,
+      "species": 200
+    },
+    "val": {
+      "images": 1423,
+      "species": 200
+    },
+    "test": {
+      "images": 2350,
+      "species": 196
+    }
+  },
+  "species_kept": 200,
+  "species_dropped": [],
+  "test_imbalance": {
+    "species_with_0_test": 4,
+    "species_with_1_to_4": 39,
+    "species_with_5_to_9": 59,
+    "species_with_10_plus": 98,
+    "min": 0,
+    "median": 9.0,
+    "max": 38,
+    "most": [
+      [
+        "Horned_Lark",
+        38
+      ],
+      [
+        "American_Pipit",
+        36
+      ],
+      [
+        "Geococcyx",
+        35
+      ],
+      [
+        "Bronzed_Cowbird",
+        32
+      ],
+      [
+        "Baird_Sparrow",
+        32
+      ]
+    ],
+    "least": [
+      [
+        "Hooded_Merganser",
+        1
+      ],
+      [
+        "Eared_Grebe",
+        0
+      ],
+      [
+        "Western_Grebe",
+        0
+      ],
+      [
+        "Pacific_Loon",
+        0
+      ],
+      [
+        "Chestnut_sided_Warbler",
+        0
+      ]
+    ]
+  }
+}
