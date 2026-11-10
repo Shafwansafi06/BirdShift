@@ -46,6 +46,16 @@ def main():
             tax2label[int(tid)] = sp2label[x]
         elif y in sp2label:
             tax2label[int(tid)] = sp2label[y]
+    rp = Path("data/splits/geography/taxon_restrictions.csv")
+    if rp.exists():
+        anc = dict(zip(taxa.taxon_id, taxa.ancestry.fillna("")))
+        for lab, grp in pd.read_csv(rp).groupby("cub_label"):
+            allowed = {int(v) for v in grp.inat_taxon_id.dropna()}
+            for tid in [t for t, l in tax2label.items() if l == int(lab)]:
+                chain = {tid} | {int(x) for x in anc.get(tid, "").split("/") if x}
+                if not (chain & allowed):
+                    del tax2label[tid]
+            print(f"label {int(lab)}: restricted to {len(allowed)} taxa, {sum(l == int(lab) for l in tax2label.values())} taxa kept", flush=True)
     print(f"{len(sp2label)} species + {len(tax2label) - len(sp2label)} infraspecific taxa mapped", flush=True)
 
     keys = list(tax2label)
@@ -88,7 +98,7 @@ def main():
              .rename(columns={"login": "photographer"}))
     df["extension"] = df.extension.str.lower()
     df = df[["observation_uuid", "observer_id", "photographer", "latitude", "longitude", "positional_accuracy",
-             "observed_on", "label", "photo_id", "extension", "license"]]
+             "observed_on", "label", "photo_id", "extension", "license", "taxon_id"]]
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(a.out, index=False)
     per = df.label.value_counts()

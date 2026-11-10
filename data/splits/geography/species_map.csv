@@ -101,7 +101,7 @@ cub_label,cub_name,inat_taxon_id,inat_name,match_type,inat_common_name,review
 99,Brown_Pelican,4328,Pelecanus occidentalis,exact,Brown Pelican,
 100,White_Pelican,4334,Pelecanus erythrorhynchos,manual,American White Pelican,
 101,Western_Wood_Pewee,16079,Contopus sordidulus,exact,Western Wood-Pewee,
-102,Sayornis,17013,Sayornis nigricans,manual,Black Phoebe,
+102,Sayornis,,"EXCLUDED: genus-level class, mixed species",excluded,Black Phoebe,yes
 103,American_Pipit,13732,Anthus rubescens,exact,American Pipit,
 104,Whip_poor_Will,199837,Antrostomus vociferus,manual,Eastern Whip-poor-will,
 105,Horned_Puffin,4508,Fratercula corniculata,exact,Horned Puffin,
@@ -169,7 +169,7 @@ cub_label,cub_name,inat_taxon_id,inat_name,match_type,inat_common_name,review
 167,Kentucky_Warbler,145225,Geothlypis formosa,exact,Kentucky Warbler,
 168,Magnolia_Warbler,145235,Setophaga magnolia,exact,Magnolia Warbler,
 169,Mourning_Warbler,145224,Geothlypis philadelphia,exact,Mourning Warbler,
-170,Myrtle_Warbler,145245,Setophaga coronata,manual,Yellow-rumped Warbler,
+170,Myrtle_Warbler,145245,Setophaga coronata coronata (Myrtle form only),restricted,Yellow-rumped Warbler,yes
 171,Nashville_Warbler,979753,Leiothlypis ruficapilla,exact,Nashville Warbler,
 172,Orange_crowned_Warbler,979757,Leiothlypis celata,exact,Orange-crowned Warbler,
 173,Palm_Warbler,145242,Setophaga palmarum,exact,Palm Warbler,
