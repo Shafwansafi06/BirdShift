@@ -10,6 +10,7 @@ If a model relies on background shortcuts instead of bird features, its accuracy
 | `background_clusters.csv` | manifest, one row per CUB image (11,788 rows) |
 | `species_coverage.csv` | per-species image counts in train / val / test |
 | `split_summary.json` | all numbers in this README, machine-readable |
+| `cluster_centroids.npy` | the 5 cluster centroids (5 x 2048, L2-normalised); they define which cluster is which |
 
 Manifest columns: `image_id,image_path,label,cluster_id,cluster_name,split` (as specified), plus
 `bg_fraction` (share of the image left as background after masking the bird) and `species_dropped`
@@ -20,6 +21,7 @@ Manifest columns: `image_id,image_path,label,cluster_id,cluster_name,split` (as 
 1. **Remove the bird.** The CUB bounding box (`bounding_boxes.txt`), enlarged by 5% per side, is filled with the ImageNet mean colour (124, 116, 104).
 2. **Features.** torchvision ResNet-50 with ImageNet weights (`IMAGENET1K_V1`), penultimate layer (2048-d). The whole image is resized to 224x224 (no crop) so no background is lost. Script: `scripts/background/extract_features.py`.
 3. **Clustering.** L2-normalised features, K-means with `n_init=10`, `random_state=42`. Script: `scripts/background/cluster_backgrounds.py`.
+   The centroids are saved in `cluster_centroids.npy`, and later runs assign each image to the nearest saved centroid (see Reproduce).
 
 ## Choice of k
 
@@ -100,6 +102,13 @@ Report per-class (balanced) accuracy alongside overall accuracy, and treat per-s
 - The gray box hides the bird but also some background around it; birds that fill the frame leave little background (see `bg_fraction`).
 - Clusters are not perfectly pure (natural photos mix scenes). Clusters 2 and 3 are mixed and are used for training only.
 - ImageNet features capture colour, texture and blur as well as scene type, so clusters partly reflect photographic style.
+- Clusters also partly reflect how much of the frame the gray box covers: cluster 3 has a mean background fraction of 0.32,
+  against 0.58 to 0.66 for the others, so it is partly a "close-up" cluster. The held-out cluster 0 (0.60) is in line with the training clusters.
+- The split ignores CUB's official train/test split: about half of the held-out test images are in the official CUB training set.
+  Models trained on the standard CUB split (everything in `checkpoints/` so far) have seen them, so they must be retrained on
+  this split before being evaluated on it.
+- 43 species have fewer than 5 test images (4 have none), so per-species test accuracy is noisy; report balanced accuracy
+  over species with at least 5 test images next to overall accuracy.
 
 ## Usage
 
@@ -116,4 +125,14 @@ train, val, test = (df[df.split == s] for s in ["train", "val", "test"])
 python scripts/background/extract_features.py      # CUB in data/raw/CUB_200_2011, features to data/processed
 python scripts/background/cluster_backgrounds.py   # add --sweep for the k = 4..12 sweep, --embedding for t-SNE
 ```
-Fixed seed (42): the manifest is identical across runs.
+**The committed `background_clusters.csv` is the split; use it for experiments.** Rerunning reproduces it closely but not
+bit for bit:
+
+- K-means numbers its clusters arbitrarily, and small feature differences between machines (GPU, library versions)
+  permute the ids. A plain refit on another machine swapped clusters 2, 3 and 4, which would have silently renamed
+  "water" as "man-made" (and could move the held-out cluster). The script therefore assigns each image to the nearest
+  centroid in `cluster_centroids.npy` by default; `--refit` re-runs K-means and renumbers its clusters to match the
+  saved centroids.
+- Re-extracting features on a different GPU and assigning to the saved centroids put 99.1% of images in the same cluster
+  (test set 2,348 vs 2,350 images). The val draw is per species, so a species with even one moved image gets a new
+  val sample.

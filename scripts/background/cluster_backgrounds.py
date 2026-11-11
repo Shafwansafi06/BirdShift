@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from PIL import Image  # noqa: E402
+from scipy.optimize import linear_sum_assignment  # noqa: E402
 from sklearn.cluster import KMeans  # noqa: E402
 from sklearn.metrics import silhouette_score  # noqa: E402
 from sklearn.preprocessing import normalize  # noqa: E402
@@ -61,6 +62,29 @@ def load_inputs(features_dir: Path):
 
 def fit_kmeans(X, k=K, seed=SEED):
     return KMeans(n_clusters=k, n_init=N_INIT, random_state=seed).fit(X).labels_.astype(int)
+
+
+def centroids_of(X, labels, k=K):
+    return normalize(np.stack([X[labels == c].mean(0) for c in range(k)])).astype(np.float32)
+
+
+def assign_clusters(X, centroids_path, refit=False):
+    """Cluster ids that stay stable across machines.
+
+    K-means numbers its clusters arbitrarily, and small feature differences (GPU, library
+    versions) permute the ids, which would silently swap CLUSTER_NAMES and HELD_OUT. The
+    committed centroids define the clusters: by default each image goes to the nearest saved
+    centroid. With --refit, K-means is re-run and its ids are matched to the saved centroids.
+    """
+    if centroids_path.exists() and not refit:
+        return (X @ np.load(centroids_path).T).argmax(1).astype(int)
+    labels = fit_kmeans(X)
+    if centroids_path.exists():
+        old = np.load(centroids_path)
+        _, new_to_old = linear_sum_assignment(-(centroids_of(X, labels) @ old.T))
+        labels = new_to_old[labels]
+    np.save(centroids_path, centroids_of(X, labels))
+    return labels
 
 
 # ----------------------------------------------------------------------------- splits
@@ -219,6 +243,8 @@ def main():
     p.add_argument("--no-galleries", action="store_true", help="skip gallery figures (faster)")
     p.add_argument("--sweep", action="store_true", help="redo the k = 4..12 silhouette sweep")
     p.add_argument("--embedding", action="store_true", help="also make the t-SNE plot")
+    p.add_argument("--refit", action="store_true",
+                   help="re-run K-means instead of using the saved centroids (ids are aligned to them)")
     args = p.parse_args()
 
     held_out = tuple(sorted(set(args.held_out)))
@@ -231,8 +257,10 @@ def main():
     if args.sweep:
         run_sweep(X, args.fig_dir, args.splits_dir)
 
-    print(f"K-means: k={K}, n_init={N_INIT}, seed={SEED} on {X.shape[0]} images ...")
-    df["cluster_id"] = fit_kmeans(X)
+    centroids_path = args.splits_dir / "cluster_centroids.npy"
+    mode = "K-means refit" if args.refit or not centroids_path.exists() else f"nearest centroid ({centroids_path})"
+    print(f"Clusters: {mode}, k={K}, on {X.shape[0]} images ...")
+    df["cluster_id"] = assign_clusters(X, centroids_path, args.refit)
     df["cluster_name"] = df["cluster_id"].map(CLUSTER_NAMES)
     df = build_splits(df, held_out)
     cov = coverage_table(df)
