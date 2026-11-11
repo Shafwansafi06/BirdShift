@@ -34,10 +34,12 @@ class PosthocLogitAdjust(torch.nn.Module):
         self.register_buffer("log_prior", log_prior)
 
     def forward(self, x):
+        # Removing the prior undoes the bias towards frequent classes learned by plain CE.
         return self.model(x) - self.tau * self.log_prior
 
 
 def class_groups(root, ratio):
+    """Split classes into head / medium / tail thirds by their long-tailed training count."""
     counts = CUBDataset(root, split="train", imbalance_ratio=ratio).data["label"].value_counts()
     ranked = counts.sort_values(ascending=False, kind="stable").index.tolist()
     third = len(ranked) // 3
@@ -46,6 +48,7 @@ def class_groups(root, ratio):
 
 
 def group_accuracy(rows, classes):
+    """Top-1 accuracy over the images whose true class is in `classes`."""
     hits = [r["correct_top1"] for r in rows if r["true_label"] in classes]
     return sum(hits) / len(hits)
 

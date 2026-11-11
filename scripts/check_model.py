@@ -1,3 +1,4 @@
+"""Sanity check: build the ResNet-50 and run one random batch to confirm output shape."""
 import torch
 
 from birdshift.models.resnet import BirdResNet

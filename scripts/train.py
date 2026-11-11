@@ -1,3 +1,12 @@
+"""Train a ResNet-50 bird classifier; used for every experiment.
+
+Examples (run from the repository root with PYTHONPATH=src):
+  python scripts/train.py --mode birdshift --epochs 30                       # Experiment 1
+  python scripts/train.py --imbalance-ratio 10 --balance la --run-name longtail_la   # Experiment 2
+  python scripts/train.py --manifest data/splits/background/background_clusters.csv --mode crop ...  # Experiment 4
+Writes checkpoints/<run>/best.pth (best val accuracy) and last.pth, and a per-epoch
+log to results/metrics/cub_<run>_training.csv.
+"""
 import argparse
 import csv
 from pathlib import Path
@@ -17,6 +26,7 @@ from birdshift.training.trainer import train_one_epoch
 
 @torch.no_grad()
 def validate(model, loader, criterion, device):
+    """Mean loss and top-1 accuracy on `loader`, without gradients (eval mode)."""
     model.eval()
     total_loss = 0.0
     correct = 0
@@ -33,6 +43,7 @@ def validate(model, loader, criterion, device):
 
 
 def main():
+    # ---------------------------------------------------------------- options
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", default="data/raw/CUB_200_2011")
     parser.add_argument("--mode", choices=["full", "crop", "birdshift"], default="full")
@@ -75,12 +86,16 @@ def main():
                         help="Checkpoint/log name; defaults to the mode's directory")
     args = parser.parse_args()
 
-    torch.manual_seed(42)
+    torch.manual_seed(42)  # fixed seed for every run
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = True  # fastest conv algorithms (slightly nondeterministic)
     print("Device:", device)
 
+    # ---------------------------------------------------------------- data
+    # A manifest with an image_id column lists CUB images (background split): CUBDataset
+    # handles it, with bounding boxes, so all three modes work. Otherwise it lists
+    # iNaturalist photos (geography split), which have no boxes: full-image mode only.
     cub_manifest = args.manifest and "image_id" in pd.read_csv(args.manifest, nrows=1)
     if args.manifest and not cub_manifest:
         if args.mode != "full" or args.imbalance_ratio > 1 or args.train_split != "train":
@@ -97,6 +112,7 @@ def main():
                             manifest=args.manifest or None)
     loader_options = dict(batch_size=args.batch_size, num_workers=args.workers,
                           pin_memory=device.type == "cuda")
+    # Training images per class, needed by the imbalance methods.
     labels = torch.tensor(train_ds.data["label"].values)
     counts = torch.bincount(labels, minlength=200).float()
     if args.balance != "none" and (counts == 0).any():
@@ -110,8 +126,10 @@ def main():
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, **loader_options)
     val_loader = DataLoader(val_ds, shuffle=False, **loader_options)
 
+    # ---------------------------------------------------------------- model and loss
+    # ImageNet weights unless resuming, in which case the checkpoint overwrites them anyway.
     model = BirdResNet(num_classes=200, pretrained=not bool(args.resume), weights=args.weights).to(device)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss()  # validation always uses plain cross-entropy
     train_criterion = criterion
     if args.balance == "cb":
         # Cui et al. 2019: weight_c = (1 - beta) / (1 - beta^n_c), normalised to sum to C.
@@ -119,12 +137,16 @@ def main():
         weights = weights / weights.sum() * len(counts)
         train_criterion = nn.CrossEntropyLoss(weight=weights.to(device))
     elif args.balance == "la":
-        # Logit-adjusted loss: train on logits + tau*log(prior); predict with raw logits.
+        # Menon et al. 2021: train on logits + tau*log(prior); predict with raw logits.
+        # Adding the prior during training makes the model learn a balanced classifier.
         log_prior = torch.log(counts / counts.sum()).to(device)
         train_criterion = lambda logits, y: criterion(logits + args.la_tau * log_prior, y)
     scaler = torch.amp.GradScaler(device.type) if args.amp else None
     if args.amp:
         model = model.to(memory_format=torch.channels_last)
+    # ---------------------------------------------------------------- optimizer
+    # Two parameter groups so the new, randomly initialised 200-class layer can learn
+    # faster (--head-lr-mult) than the pretrained backbone.
     head = list(model.backbone.get_classifier().parameters())
     head_ids = {id(p) for p in head}
     param_groups = [
@@ -137,7 +159,9 @@ def main():
     else:
         wd = 0.01 if args.weight_decay is None else args.weight_decay
         optimizer = AdamW(param_groups, lr=args.lr, weight_decay=wd)
+    # Cosine schedule (Loshchilov & Hutter 2017): LR decays smoothly to 0 over the run.
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs) if args.scheduler == "cosine" else None
+    # ---------------------------------------------------------------- output folders
     run_dir = Path("checkpoints") / {
         "full": "baseline",
         "crop": "crop",
@@ -150,6 +174,7 @@ def main():
     log_path = Path("results/metrics") / f"cub_{args.run_name or args.mode}_training.csv"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # ---------------------------------------------------------------- resume
     start_epoch = 0
     best_accuracy = -1.0
     if args.resume:
@@ -162,9 +187,11 @@ def main():
         if previous_mode is not None and previous_mode != args.mode:
             raise ValueError(f"Checkpoint mode={previous_mode}, requested mode={args.mode}")
         print(f"Resuming from epoch {start_epoch}; best validation accuracy {best_accuracy:.2%}")
+        # Fast-forward the LR schedule to where the previous run stopped.
         for _ in range(start_epoch if scheduler else 0):
             scheduler.step()
 
+    # ---------------------------------------------------------------- training loop
     fields = ["epoch", "train_loss", "train_accuracy", "val_loss", "val_accuracy"]
     append = bool(args.resume) and log_path.exists()
     with log_path.open("a" if append else "w", newline="") as f:
@@ -194,10 +221,12 @@ def main():
                 f"Val Acc: {row['val_accuracy']:.4f}"
             )
 
+            # Model selection on val only: best.pth is the epoch with the highest val accuracy.
             improved = val_metrics["accuracy"] > best_accuracy
             if improved:
                 best_accuracy = val_metrics["accuracy"]
 
+            # Store the settings evaluation needs (mode, image size, split) with the weights.
             checkpoint = {
                 "epoch": epoch + 1,
                 "model_state_dict": model.state_dict(),

@@ -22,12 +22,14 @@ COLORS = {"Full-image": "#2563eb", "Bird-crop": "#f59e0b", "BirdShift": "#16a34a
 
 
 def read_log(name):
+    """Per-epoch training log of one run as {column: [values]}."""
     with (METRICS / f"cub_{name}_training.csv").open() as f:
         rows = list(csv.DictReader(f))
     return {k: [float(r[k]) for r in rows] for k in rows[0]}
 
 
 def plot_curves(runs, title, path):
+    """Loss and accuracy curves (solid = val, dashed = train) for {label: run_name}."""
     fig, (ax_loss, ax_acc) = plt.subplots(1, 2, figsize=(12, 4.5))
     for label, log_name in runs.items():
         log = read_log(log_name)
@@ -50,6 +52,7 @@ def plot_curves(runs, title, path):
 
 
 def grouped_bars(groups, series, ylabel, title, path, ylim=None, legend_loc="upper right"):
+    """Grouped bar chart: one bar per series in each group, values labelled on top."""
     fig, ax = plt.subplots(figsize=(10, 4.8))
     width = 0.8 / len(series)
     for i, (label, values) in enumerate(series.items()):
@@ -68,6 +71,7 @@ def grouped_bars(groups, series, ylabel, title, path, ylim=None, legend_loc="upp
 
 
 def main():
+    """Rebuild every figure in results/figures from the saved metrics."""
     OUT.mkdir(parents=True, exist_ok=True)
     plot_curves({"Full-image": "full", "Bird-crop": "crop", "BirdShift": "birdshift"},
                 "Experiment 1: training curves", OUT / "curves_background.png")

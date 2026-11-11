@@ -28,13 +28,15 @@ def background_variant(image, bbox, kind="original", donor=None, blur_radius=22)
            omitted, deterministic neutral gray replaces the background.
     """
     image = image.convert("RGB")
-    if kind == "original":
+    if kind == "original":  # unchanged copy, the reference condition
         return image.copy()
     box = bbox_to_pixels(bbox, image.size)
     if kind == "blur":
+        # Strong Gaussian blur removes background texture but keeps its colours.
         changed = image.filter(ImageFilter.GaussianBlur(radius=blur_radius))
     elif kind == "replace":
         if donor is None:
+            # Flat gray (default): no second bird or species-typical habitat can leak in.
             changed = Image.new("RGB", image.size, (128, 128, 128))
         else:
             changed = ImageOps.fit(donor.convert("RGB"), image.size, method=Image.Resampling.BILINEAR)
@@ -48,7 +50,13 @@ def background_variant(image, bbox, kind="original", donor=None, blur_radius=22)
 
 
 class SquarePad:
-    """Matches the user's final trained crop preprocessing."""
+    """Pad an image to a square with neutral gray, keeping it centred.
+
+    Used before resizing bird crops: resizing a tall or wide crop straight to a
+    square stretches the bird out of shape, which kept the first crop model at 40%
+    accuracy (README, problem 1).
+    """
+
     def __call__(self, image):
         w, h = image.size
         size = max(w, h)

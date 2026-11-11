@@ -1,4 +1,4 @@
-
+"""Sanity check: load CUB splits, print their sizes and push one batch through the model."""
 import torch
 from torch.utils.data import DataLoader
 

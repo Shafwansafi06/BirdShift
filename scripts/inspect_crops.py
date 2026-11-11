@@ -1,4 +1,4 @@
-
+"""Sanity check: show a few bird-crop training samples to verify box cropping."""
 import matplotlib.pyplot as plt
 
 from birdshift.datasets.cub import CUBDataset

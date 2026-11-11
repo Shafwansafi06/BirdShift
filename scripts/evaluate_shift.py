@@ -1,4 +1,8 @@
-"""Compare full-image and bird-crop checkpoints on controlled CUB background shifts.
+"""Experiment 1: evaluate full-image, bird-crop and BirdShift models under background shift.
+
+Each val image is scored three times: original, background blurred, background replaced
+by gray. The bird's bounding box is kept pixel-identical, so any accuracy change comes
+from the background alone. Writes per-image predictions and summary_<split>.csv/json.
 
 Run from repository root with PYTHONPATH=src. Uses the exact val split from CUBDataset
 and the evaluation transforms corresponding to the saved model types.
@@ -20,6 +24,12 @@ from birdshift.transforms.background import background_variant, bbox_to_pixels, 
 
 
 class ShiftedCUBDataset(Dataset):
+    """CUB images with one background shift applied, preprocessed like the model's eval input.
+
+    mode: full (whole image) or crop (bounding-box crop; it ignores the shift by design).
+    shift: original, blur or replace.
+    """
+
     def __init__(self, root, split, mode, shift, blur_radius=22, image_size=224):
         if mode not in ("full", "crop"):
             raise ValueError("mode must be full or crop")
@@ -58,6 +68,7 @@ class ShiftedCUBDataset(Dataset):
 
 
 def load_checkpoint(path, mode, device):
+    """Load a checkpoint into a ResNet-50 in eval mode, checking its stored mode matches."""
     model = BirdResNet(num_classes=200, pretrained=False).to(device)
     try:
         checkpoint = torch.load(path, map_location="cpu", weights_only=True)
@@ -77,6 +88,7 @@ def load_checkpoint(path, mode, device):
 
 @torch.inference_mode()
 def evaluate(model, loader, device):
+    """Per-image top-1/top-5 predictions plus top-1, top-5 and macro-F1 over the loader."""
     rows = []
     for batch in loader:
         logits = model(batch["image"].to(device, non_blocking=True))
@@ -147,6 +159,7 @@ def main():
     for key, preds in raw_predictions.items():
         assert [(r["image_id"], r["true_label"]) for r in preds] == reference, f"Sample mismatch: {key}"
 
+    # Accuracy drop of each condition relative to the same model on original images.
     baselines = {r["model"]: r["top1_accuracy"] for r in summaries if r["shift"] == "original"}
     for r in summaries:
         r["accuracy_drop_pp"] = round((baselines[r["model"]] - r["top1_accuracy"]) * 100, 4)
@@ -157,6 +170,7 @@ def main():
     with (output / f"summary_{args.split}.json").open("w") as f:
         json.dump(summaries, f, indent=2)
 
+    # Sanity check: the crop model only sees the box, so its predictions must not change.
     crop_orig = raw_predictions[("crop", "original")]
     for shift in ("blur", "replace"):
         crop_shift = raw_predictions[("crop", shift)]

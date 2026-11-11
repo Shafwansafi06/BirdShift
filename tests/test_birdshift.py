@@ -1,3 +1,4 @@
+"""BirdShift dataset: box pixels preserved, and val images identical to full-image mode."""
 import unittest
 import tempfile
 from pathlib import Path

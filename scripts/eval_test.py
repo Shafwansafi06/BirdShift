@@ -20,6 +20,7 @@ from birdshift.models.resnet import BirdResNet
 
 @torch.no_grad()
 def predict(model, ds, dev):
+    """Predicted and true labels for every image in `ds` (float16 inference)."""
     preds, labels = [], []
     with torch.autocast(dev.type, dtype=torch.float16):
         for b in DataLoader(ds, batch_size=64, num_workers=8):
@@ -29,6 +30,7 @@ def predict(model, ds, dev):
 
 
 def main():
+    """Score each run's best.pth on the requested splits."""
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--manifest", default="")
@@ -50,6 +52,8 @@ def main():
                                   manifest=a.manifest or None))
             p, y = predict(model, ds, dev)
             hit = (p == y).float()
+            # Balanced accuracy: mean of per-species accuracies, so common species
+            # do not dominate the score (matters on the geography test split).
             per_class = [hit[y == c].mean().item() for c in y.unique()]
             print(f"{run} [{split}, {len(ds)} images, {len(per_class)} species]: epoch {ck['epoch']} "
                   f"top-1 {hit.mean().item():.2%} ({int(hit.sum())}/{len(ds)}) "

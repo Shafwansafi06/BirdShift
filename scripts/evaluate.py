@@ -1,3 +1,8 @@
+"""Plain top-1 / macro-F1 evaluation of one checkpoint on CUB val or test.
+
+Kept as an independent second evaluator: scripts/audit_evaluators.py checks it agrees
+image by image with evaluate_shift.py on unshifted images.
+"""
 import argparse
 import csv
 import json
@@ -13,6 +18,7 @@ from birdshift.models.resnet import BirdResNet
 
 @torch.no_grad()
 def predict(model, loader, device):
+    """Predicted and true labels for every image in the loader."""
     model.eval()
     records = []
     for batch in loader:
@@ -36,6 +42,7 @@ def predict(model, loader, device):
 
 
 def main():
+    """Evaluate one checkpoint and save metrics and per-image predictions."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", default="data/raw/CUB_200_2011")
     parser.add_argument("--checkpoint", required=True)

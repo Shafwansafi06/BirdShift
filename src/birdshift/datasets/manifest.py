@@ -1,3 +1,4 @@
+"""Dataset for split manifests whose images are not in CUB (the iNaturalist geography split)."""
 from pathlib import Path
 
 import pandas as pd
@@ -17,14 +18,16 @@ class ManifestDataset(Dataset):
     """
 
     def __init__(self, manifest, root, split, image_size=224, train_aug="rrc"):
-        df = pd.read_csv(manifest)
+        df = pd.read_csv(manifest)  # one row per photo
         if split not in set(df["split"]):
             raise ValueError(f"split {split!r} not in {manifest}")
         if "species_dropped" in df:
             df = df[df["species_dropped"] == 0]
+        # Keep only the requested split; the rest of the manifest is ignored.
         self.data = df[df["split"] == split][["image_path", "label"]].reset_index(drop=True)
         self.root = Path(root)
         self.split = split
+        # Same preprocessing as CUB full-image models, so CUB checkpoints can be scored here.
         self.transform = full_image_transform(split == "train", image_size, train_aug)
 
     def __len__(self):

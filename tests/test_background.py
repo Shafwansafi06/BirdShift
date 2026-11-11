@@ -1,3 +1,4 @@
+"""Background shifts must leave every pixel inside the bounding box unchanged."""
 from PIL import Image
 import numpy as np
 
