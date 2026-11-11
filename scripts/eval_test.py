@@ -4,10 +4,12 @@ Default: CUB official test split.
   PYTHONPATH=src python scripts/eval_test.py final_sgd_tv
 With --manifest: the given splits of a manifest, e.g. the geography split.
   PYTHONPATH=src python scripts/eval_test.py geo_sgd_tv --manifest data/splits/geography/geography_clusters.csv
+CUB-based manifests (background split) use the checkpoint's mode (full / crop / birdshift).
 Uses checkpoints/<run>/best.pth.
 """
 import argparse
 
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
@@ -40,10 +42,12 @@ def main():
         model = BirdResNet(200, pretrained=False).to(dev)
         model.load_state_dict(ck["model_state_dict"])
         model.eval()
-        size = ck.get("image_size", 224)
+        size, mode = ck.get("image_size", 224), ck.get("mode", "full")
+        cub_manifest = a.manifest and "image_id" in pd.read_csv(a.manifest, nrows=1)
         for split in a.splits:
-            ds = (ManifestDataset(a.manifest, a.manifest_root, split, size) if a.manifest else
-                  CUBDataset("data/raw/CUB_200_2011", split=split, mode="full", image_size=size))
+            ds = (ManifestDataset(a.manifest, a.manifest_root, split, size) if a.manifest and not cub_manifest
+                  else CUBDataset("data/raw/CUB_200_2011", split=split, mode=mode, image_size=size,
+                                  manifest=a.manifest or None))
             p, y = predict(model, ds, dev)
             hit = (p == y).float()
             per_class = [hit[y == c].mean().item() for c in y.unique()]

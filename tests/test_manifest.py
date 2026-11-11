@@ -30,3 +30,15 @@ with tempfile.TemporaryDirectory() as d:
     except ValueError:
         pass
 print("ok")
+
+# CUB-based manifest (background split): CUBDataset follows its splits in every mode.
+bg = Path("data/splits/background/background_clusters.csv")
+if Path("data/raw/CUB_200_2011").exists() and bg.exists():
+    from birdshift.datasets.cub import CUBDataset
+    m = pd.read_csv(bg)
+    for mode in ("full", "crop", "birdshift"):
+        for split in ("train", "val", "test"):
+            ds = CUBDataset("data/raw/CUB_200_2011", split=split, mode=mode, image_size=32, manifest=bg)
+            assert set(ds.data["id"]) == set(m[m["split"] == split]["image_id"]), (mode, split)
+    assert tuple(ds[0]["image"].shape) == (3, 32, 32)
+    print("background manifest ok")

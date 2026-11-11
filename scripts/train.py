@@ -2,6 +2,7 @@ import argparse
 import csv
 from pathlib import Path
 
+import pandas as pd
 import torch
 from torch import nn
 from torch.optim import SGD, AdamW
@@ -65,8 +66,9 @@ def main():
     parser.add_argument("--weights", default="resnet50",
                         help="timm pretrained weights, e.g. resnet50 or resnet50.tv_in1k")
     parser.add_argument("--manifest", default="",
-                        help="Train/val from a split manifest CSV instead of CUB, e.g. "
-                             "data/splits/geography/geography_clusters.csv (full-image mode only)")
+                        help="Train/val from a split manifest CSV instead of CUB's split. CUB-based manifests "
+                             "(image_id column, e.g. data/splits/background/background_clusters.csv) "
+                             "work with every mode; iNaturalist ones (geography) with --mode full only")
     parser.add_argument("--manifest-root", default="data/raw",
                         help="Folder that manifest image_path values are relative to")
     parser.add_argument("--run-name", default="",
@@ -79,7 +81,8 @@ def main():
         torch.backends.cudnn.benchmark = True
     print("Device:", device)
 
-    if args.manifest:
+    cub_manifest = args.manifest and "image_id" in pd.read_csv(args.manifest, nrows=1)
+    if args.manifest and not cub_manifest:
         if args.mode != "full" or args.imbalance_ratio > 1 or args.train_split != "train":
             parser.error("--manifest supports --mode full only, without --imbalance-ratio or --train-split")
         train_ds = ManifestDataset(args.manifest, args.manifest_root, "train", args.image_size, args.train_aug)
@@ -88,8 +91,10 @@ def main():
         train_ds = CUBDataset(args.data_root, split=args.train_split, mode=args.mode,
                               suppression_prob=args.suppression_prob,
                               imbalance_ratio=args.imbalance_ratio,
-                              image_size=args.image_size, train_aug=args.train_aug)
-        val_ds = CUBDataset(args.data_root, split="val", mode=args.mode, image_size=args.image_size)
+                              image_size=args.image_size, train_aug=args.train_aug,
+                              manifest=args.manifest or None)
+        val_ds = CUBDataset(args.data_root, split="val", mode=args.mode, image_size=args.image_size,
+                            manifest=args.manifest or None)
     loader_options = dict(batch_size=args.batch_size, num_workers=args.workers,
                           pin_memory=device.type == "cuda")
     labels = torch.tensor(train_ds.data["label"].values)

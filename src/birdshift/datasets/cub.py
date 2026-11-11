@@ -52,7 +52,10 @@ def make_long_tailed(df, ratio, seed=42):
 
 
 class CUBDataset(Dataset):
-    def __init__(self, root, split="train", mode="full", image_size=224, suppression_prob=0.5, suppression_kind="blur", blur_radius=22, imbalance_ratio=1.0, train_aug="rrc"):
+    def __init__(self, root, split="train", mode="full", image_size=224, suppression_prob=0.5, suppression_kind="blur", blur_radius=22, imbalance_ratio=1.0, train_aug="rrc",
+                 manifest=None):
+        # manifest: CSV with image_id (CUB id) and split columns, e.g. the background-cluster
+        # split; replaces the official train/val/test split. All three modes work.
         self.root = Path(root)
         self.split = split
         self.mode = mode
@@ -89,6 +92,14 @@ class CUBDataset(Dataset):
         )
         # trainval = all 5,994 official training images (final runs, no held-out val)
         choices = {"train": train_df, "val": val_df, "test": test_df, "trainval": train_pool}
+        if manifest:
+            m = pd.read_csv(manifest)
+            if "species_dropped" in m:
+                m = m[m["species_dropped"] == 0]
+            m = df.merge(m[["image_id", "label", "split"]], left_on="id", right_on="image_id",
+                         suffixes=("", "_manifest"))
+            assert (m["label"] == m["label_manifest"]).all(), "manifest labels disagree with CUB"
+            choices = {s: m[m["split"] == s] for s in ("train", "val", "test")}
         if split not in choices:
             raise ValueError("split must be train, val, test, or trainval")
         data = choices[split]

@@ -59,6 +59,9 @@ Best checkpoint of each run, chosen by validation accuracy. "Val (training log)"
 | BirdShift, 448 px | 5,094 images | 27 / 30 | 79.67% | **79.67%** | `checkpoints/birdshift_448/best.pth` |
 | Full-image, 448 px, SGD recipe | 5,094 images | 45 / 50 | 84.00% | **84.00%** | `checkpoints/recipe_sgd_tv/best.pth` |
 | Geography split, SGD recipe | 32,083 iNat images | 28 / 30 | 81.94% | **81.94%** | `checkpoints/geo_sgd_tv/best.pth` |
+| Background split, full-image | 8,015 CUB images | 25 / 30 | 85.73% | **85.66%** | `checkpoints/bg_full_sgd_tv/best.pth` |
+| Background split, bird-crop | 8,015 CUB images | 23 / 30 | 86.93% | **86.93%** | `checkpoints/bg_crop_sgd_tv/best.pth` |
+| Background split, BirdShift | 8,015 CUB images | 30 / 30 | 86.65% | **86.65%** | `checkpoints/bg_birdshift_sgd_tv/best.pth` |
 | Full-image, 448 px, SGD recipe, final | 5,994 images (train + val) | 50 / 50 | n/a | n/a, **84.55% test** | `checkpoints/final_sgd_tv/last.pth` |
 
 The long-tail runs see 60% fewer training images than the first three, so their absolute accuracy should only be compared with each other.
@@ -284,6 +287,22 @@ Head, medium and tail are the top, middle and bottom thirds of classes ranked by
 
 ---
 
+## Experiment 4: held-out background cluster
+
+CUB images clustered by background (`data/splits/background/`). Train on four clusters (8,015 train / 1,423 val), test on the held-out "ground / grass" cluster (2,350 images, 196 species). Same SGD recipe, 30 epochs, 448 px, for all three models. Crop is evaluated on ground-truth box crops.
+
+| Model | Best epoch | Val, training backgrounds | Test, ground / grass | Drop |
+|---|---|---|---|---|
+| Full-image | 25 / 30 | 85.66% (balanced 85.34%) | 83.96% (balanced 82.93%) | 1.7 pp |
+| Bird-crop | 23 / 30 | **86.93%** (balanced 86.81%) | **85.49%** (balanced 83.01%) | 1.4 pp |
+| BirdShift | 30 / 30 | 86.65% (balanced 86.30%) | 84.30% (balanced 82.60%) | 2.4 pp |
+
+- An unseen background type costs every model under 2.5 pp, far less than the 19.3 pp geographic drop.
+- Bird-crop is best on test (+1.5 pp, 36 images over full-image). BirdShift is +0.3 pp (8 images) over full-image, within noise for one seed.
+- Balanced accuracies are within 0.4 pp of each other; 43 test species have fewer than 5 images, so they are noisy.
+
+---
+
 ## Problems we hit and how we fixed them
 
 | # | Problem | How we noticed | Fix |
@@ -381,6 +400,15 @@ PYTHONPATH=src python scripts/train.py --manifest $M --mode full --epochs 30 --i
     --workers 12 --train-aug fg --scheduler cosine --optimizer sgd --lr 0.01 --head-lr-mult 10 \
     --weights resnet50.tv_in1k --run-name geo_sgd_tv
 PYTHONPATH=src python scripts/eval_test.py geo_sgd_tv final_sgd_tv --manifest $M --splits val test
+
+# Experiment 4: held-out background cluster (CUB images, so all three modes work)
+M=data/splits/background/background_clusters.csv
+for m in full crop birdshift; do
+  PYTHONPATH=src python scripts/train.py --manifest $M --mode $m --epochs 30 --image-size 448 --amp \
+      --workers 12 --train-aug fg --scheduler cosine --optimizer sgd --lr 0.01 --head-lr-mult 10 \
+      --weights resnet50.tv_in1k --run-name bg_${m}_sgd_tv
+done
+PYTHONPATH=src python scripts/eval_test.py bg_full_sgd_tv bg_crop_sgd_tv bg_birdshift_sgd_tv --manifest $M --splits val test
 ```
 
 </details>
@@ -500,7 +528,7 @@ BirdShift/
 - [x] Geographic clustering of images
 - [x] Background clustering of images
 - [x] Train on held-out geographic clusters (Experiment 3)
-- [ ] Train all three models on the background-cluster split
+- [x] Train all three models on the held-out background cluster (Experiment 4)
 
 ## References
 
