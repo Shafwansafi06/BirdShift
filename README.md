@@ -1,534 +1,288 @@
 # BirdShift
 
-Robust fine-grained bird classification under background shift and class imbalance, on CUB-200-2011.
+Context-debiased fine-grained bird recognition under background, geography and long-tail shift. DSE-312 Computer Vision course project.
 
 ![Python](https://img.shields.io/badge/python-3.10-blue)
 ![PyTorch](https://img.shields.io/badge/pytorch-2.14-ee4c2c)
-![Dataset](https://img.shields.io/badge/dataset-CUB--200--2011-green)
+![Dataset](https://img.shields.io/badge/dataset-CUB--200--2011%20%2B%20iNaturalist-green)
 ![Backbone](https://img.shields.io/badge/backbone-ResNet--50-orange)
 
-Bird classifiers often learn shortcuts from the scene around the bird (water, sky, branches) rather than the bird itself. A heron is "the bird near water". This project measures how much a ResNet-50 depends on that context, trains a model that depends on it less, and studies how to handle rare classes when the training data is long-tailed.
+**Team:** Shafwan Safi (24003), Ankit Kumar (24045), Agastya Bhanu (24025)
 
-**Contents:** [Overview](#overview) · [Best runs](#best-runs) · [Experiment 1: background shift](#experiment-1-background-shift) · [Experiment 2: class imbalance](#experiment-2-class-imbalance) · [Setup](#setup) · [Running the code](#running-the-code) · [Problems and fixes](#problems-we-hit-and-how-we-fixed-them) · [Repository layout](#repository-layout) · [Roadmap](#roadmap)
+Bird classifiers often learn the scene instead of the bird: a heron is "the bird near water". We measure how much a ResNet-50 relies on that context, train a model that relies on it less (BirdShift), test on held-out backgrounds and held-out regions, and compare fixes for long-tailed training data.
 
----
-
-## Overview
-
-```mermaid
-flowchart LR
-    D[("CUB-200-2011<br/>11,788 images<br/>200 species")] --> S{"Split"}
-    S -->|"85%"| TR["Train<br/>5,094"]
-    S -->|"15%"| VA["Val<br/>900"]
-    S -->|"official"| TE["Test<br/>5,794"]
-
-    TR --> E1["Experiment 1<br/>Background shift"]
-    TR --> LT["Long-tailed subset<br/>2,039 images"] --> E2["Experiment 2<br/>Class imbalance"]
-
-    E1 --> M1["Full-image"]
-    E1 --> M2["Bird-crop"]
-    E1 --> M3["BirdShift"]
-    E2 --> M4["Cross-entropy"]
-    E2 --> M5["Weighted sampler"]
-    E2 --> M6["Class-balanced loss"]
-
-    M1 & M2 & M3 --> V1["Eval on original,<br/>blurred and replaced<br/>backgrounds"]
-    M4 & M5 & M6 --> V2["Eval on balanced val:<br/>head / medium / tail"]
-    VA -.-> V1 & V2
-```
-
-All models share the same backbone (ImageNet-pretrained ResNet-50 from `timm`, with a 200-way head), optimiser (AdamW, lr 1e-4), batch size (64), 30 epochs and validation split (stratified, `random_state=42`). The main runs use 224 px images; Experiment 1 was repeated at 448 px with mixed precision.
+**Contents:** [Results at a glance](#results-at-a-glance) · [Exp 1: synthetic background shift](#experiment-1-synthetic-background-shift) · [Training recipe](#training-recipe-matching-the-published-resnet-50) · [Exp 2: class imbalance](#experiment-2-class-imbalance) · [Exp 3: geography](#experiment-3-held-out-geographic-region) · [Exp 4: held-out background](#experiment-4-held-out-background-cluster) · [Setup and running](#setup-and-running) · [Problems and fixes](#problems-we-hit-and-how-we-fixed-them) · [References](#references)
 
 ---
 
-## Best runs
+## Results at a glance
 
-Best checkpoint of each run, chosen by validation accuracy. "Val (training log)" is the number logged during training. "Val (re-evaluated)" comes from the evaluation scripts and is the number used in every results table.
+| Experiment | Question | Main result |
+|---|---|---|
+| 1. Synthetic background shift (CUB val, 900) | Does accuracy drop when the background is blurred or replaced? | Full-image drops up to 1.7 pp; BirdShift up to 0.4 pp; bird-crop is unaffected but needs a box at test time |
+| Training recipe (CUB test, 5,794) | Can we match the published ResNet-50 (84.5%)? | **84.55%** with torchvision weights + SGD; timm's default weights cost 7.8 pp |
+| 2. Long-tail, 10:1 (CUB val, 900) | Which fix helps rare classes most? | Logit-adjusted CE: 53.0% → **62.3%**, tail 23% → 50% |
+| 3. Held-out region (iNaturalist, 18,953) | Train on other regions, test on western North America | 81.9% → **62.7%** (−19.3 pp); 11.7 pp of that is a different species mix |
+| 4. Held-out background (CUB, 2,350) | Train on 4 background clusters, test on "ground / grass" | All three models lose under 2.5 pp; bird-crop best (85.5%), BirdShift +0.3 pp over full-image |
 
-| Run | Training data | Best epoch | Val (training log) | Val (re-evaluated) | Checkpoint |
-|---|---|---|---|---|---|
-| Full-image | 5,094 images | 30 / 30 | 78.33% | **78.33%** | `checkpoints/baseline/best.pth` |
-| Bird-crop | 5,094 images | 24 / 25 | 77.89% | **77.89%** | `checkpoints/crop/best.pth` |
-| BirdShift | 5,094 images | 29 / 30 | 78.33% | **78.22%** | `checkpoints/birdshift/best.pth` |
-| Long-tail, standard CE | 2,039 images | 30 / 30 | 53.00% | **53.00%** | `checkpoints/longtail_ce/best.pth` |
-| Long-tail, weighted sampler | 2,039 images | 30 / 30 | 59.89% | **59.78%** | `checkpoints/longtail_sampler/best.pth` |
-| Long-tail, class-balanced CE | 2,039 images | 29 / 30 | 59.33% | **59.33%** | `checkpoints/longtail_cb/best.pth` |
-| Long-tail, logit-adjusted CE | 2,039 images | 29 / 30 | 62.33% | **62.33%** | `checkpoints/longtail_la/best.pth` |
-| Full-image, 448 px | 5,094 images | 27 / 30 | 79.33% | **79.44%** | `checkpoints/baseline_448/best.pth` |
-| Bird-crop, 448 px | 5,094 images | 26 / 30 | 81.33% | **81.33%** | `checkpoints/crop_448/best.pth` |
-| BirdShift, 448 px | 5,094 images | 27 / 30 | 79.67% | **79.67%** | `checkpoints/birdshift_448/best.pth` |
-| Full-image, 448 px, SGD recipe | 5,094 images | 45 / 50 | 84.00% | **84.00%** | `checkpoints/recipe_sgd_tv/best.pth` |
-| Geography split, SGD recipe | 32,083 iNat images | 28 / 30 | 81.94% | **81.94%** | `checkpoints/geo_sgd_tv/best.pth` |
-| Background split, full-image | 8,015 CUB images | 25 / 30 | 85.73% | **85.66%** | `checkpoints/bg_full_sgd_tv/best.pth` |
-| Background split, bird-crop | 8,015 CUB images | 23 / 30 | 86.93% | **86.93%** | `checkpoints/bg_crop_sgd_tv/best.pth` |
-| Background split, BirdShift | 8,015 CUB images | 30 / 30 | 86.65% | **86.65%** | `checkpoints/bg_birdshift_sgd_tv/best.pth` |
-| Full-image, 448 px, SGD recipe, final | 5,994 images (train + val) | 50 / 50 | n/a | n/a, **84.55% test** | `checkpoints/final_sgd_tv/last.pth` |
+![Held-out cluster results](results/figures/results_split_shift.png)
 
-The long-tail runs see 60% fewer training images than the first three, so their absolute accuracy should only be compared with each other.
-
-### Training curves
-
-![Experiment 1 training curves](results/figures/curves_background.png)
-
-Dots mark the best validation epoch. The bird-crop model fits its training set almost perfectly (99% train accuracy, train loss near 0.1) while validation flattens at about 78%, so it overfits the most. BirdShift trains more slowly than the full-image model because half its training images have their background blurred, but it reaches the same validation accuracy. The full-image log only covers epochs 21 to 30 (see [problem 7](#problems-we-hit-and-how-we-fixed-them)).
-
-![Experiment 2 training curves](results/figures/curves_longtail.png)
-
-With only 2,039 images the gap between train and validation loss is much larger. Standard CE ends with the highest validation loss. Logit-adjusted CE ends with the lowest validation loss and the highest accuracy.
-
-![Experiment 1 at 448 px training curves](results/figures/curves_background_448.png)
-
-At 448 px all three models finish 1 to 3.5 points above their 224 px versions. The bird-crop model gains the most, because a larger input shows more feather detail when the bird fills the frame.
+Unless stated, numbers are from one training run (seed 42). On the 900-image CUB val split a 1 pp gap is 9 images. All raw numbers are in [`results/metrics/`](results/metrics/): per-epoch training logs (`cub_<run>_training.csv`), test accuracy (`test_accuracy.csv`), held-out cluster accuracy (`split_shift_accuracy.csv`) and per-image predictions.
 
 ---
 
-## Experiment 1: background shift
+## Experiment 1: synthetic background shift
 
-### The three models
-
-| Model | What it sees in training | What it sees at test time | Needs a bounding box at test time? |
+| Model | Training input | Test input | Box needed at test? |
 |---|---|---|---|
-| **Full-image** | Whole photo, `RandomResizedCrop` + flip | Whole photo, `Resize(256)` + `CenterCrop(224)` | No |
-| **Bird-crop** | Bounding-box crop, square-padded, flip / rotate / colour jitter | Bounding-box crop | **Yes** |
-| **BirdShift** | Whole photo; half the time the background is blurred first | Whole photo, same as full-image | No |
+| **Full-image** | Whole photo | Whole photo | No |
+| **Bird-crop** | Bounding-box crop, square-padded | Bounding-box crop | **Yes** |
+| **BirdShift** | Whole photo; with probability 0.5 everything outside the bird's box is Gaussian-blurred (radius 22) | Whole photo | No |
 
-### How BirdShift training works
-
-```mermaid
-flowchart LR
-    A["Training image"] --> B{"random() < 0.5 ?"}
-    B -->|"yes"| C["Gaussian-blur everything<br/>outside the bird's box<br/>(radius 22)"]
-    B -->|"no"| D["Keep original"]
-    C --> E["RandomResizedCrop 224<br/>+ horizontal flip"]
-    D --> E
-    E --> F["ResNet-50"]
-```
-
-The bounding box is only used to build the training augmentation. At test time BirdShift takes a plain photo, exactly like the full-image model.
-
-### How the test images are shifted
-
-```mermaid
-flowchart LR
-    I["Val image + box"] --> O["original<br/>unchanged"]
-    I --> BL["blur<br/>background blurred,<br/>bird untouched"]
-    I --> RP["replace<br/>background filled with<br/>neutral gray"]
-    O & BL & RP --> M["Each model evaluated<br/>on all three"]
-```
-
-Gray is used for `replace` instead of another photo so that no second bird or species-specific habitat leaks into the image.
+Each model is evaluated on the val images unchanged, with the background blurred, and with the background replaced by neutral gray (gray, not another photo, so no second bird or habitat leaks in).
 
 ![Example of the three test conditions](results/figures/background_shift/image_23.png)
 
-### Results
+Top-1 on CUB val (900 images), AdamW recipe:
 
-Top-1 accuracy on the 900 validation images:
-
-![Background shift results](results/figures/results_background.png)
-
-| Model | Original | Blurred BG | Replaced BG | Change (blur) | Change (replace) |
-|---|---|---|---|---|---|
-| Full-image | **78.33%** | 77.33% | 76.67% | −1.00 pp | −1.67 pp |
-| Bird-crop | 77.89% | 77.89% | 77.89% | 0.00 pp | 0.00 pp |
-| **BirdShift** | 78.22% | **78.78%** | **77.78%** | **+0.56 pp** | −0.44 pp |
-
-<details>
-<summary><b>Macro-F1 for the same runs</b></summary>
-
-| Model | Original | Blurred BG | Replaced BG |
-|---|---|---|---|
-| Full-image | **0.776** | 0.765 | 0.758 |
-| Bird-crop | 0.769 | 0.769 | 0.769 |
-| BirdShift | 0.772 | **0.779** | **0.771** |
-
-</details>
-
-**Takeaways**
-
-- The full-image model loses accuracy whenever its background is changed, so part of what it learned is the scene, not the bird.
-- The bird-crop model can't be affected by the background because it never sees it. The price is that it needs a bounding box for every test image.
-- BirdShift needs no box at test time, matches the full-image model on normal photos (−0.11 pp), and holds up better under both shifts.
-
-These are controlled, synthetic shifts. They show the model leans less on background context; they don't yet show it generalises to new real-world habitats.
-
-### Repeated at 448 px
-
-Fine-grained bird papers usually train at 448×448 rather than 224×224 (Yang et al. 2018 report 84.5% for a plain ResNet-50 at 448 px). We retrained all three models at 448 px with float16 mixed precision (`--image-size 448 --amp`), keeping every other setting the same. Each 448 px run took about 12 minutes on an RTX 3090 (about 25 s per epoch).
-
-![Background shift results at 448 px](results/figures/results_background_448.png)
-
-| Model | Original | Blurred BG | Replaced BG | Change (blur) | Change (replace) | Gain over 224 px (original) |
+| Model | 224 px original | blur | replace | 448 px original | blur | replace |
 |---|---|---|---|---|---|---|
-| Full-image | 79.44% | 79.22% | 78.33% | −0.22 pp | −1.11 pp | +1.11 pp |
-| Bird-crop | **81.33%** | **81.33%** | **81.33%** | 0.00 pp | 0.00 pp | +3.44 pp |
-| **BirdShift** | 79.67% | 79.56% | 79.44% | **−0.11 pp** | **−0.23 pp** | +1.45 pp |
+| Full-image | **78.33%** | 77.33% | 76.67% | 79.44% | 79.22% | 78.33% |
+| Bird-crop | 77.89% | 77.89% | 77.89% | **81.33%** | **81.33%** | **81.33%** |
+| BirdShift | 78.22% | **78.78%** | **77.78%** | 79.67% | 79.56% | 79.44% |
+
+<p>
+<img src="results/figures/results_background.png" width="49%" alt="Background shift at 224 px">
+<img src="results/figures/results_background_448.png" width="49%" alt="Background shift at 448 px">
+</p>
+
+- The full-image model loses accuracy whenever the background changes, so part of what it learned is the scene.
+- BirdShift needs no box at test time, matches the full-image model on normal photos, and drops least under both shifts.
+- Bird-crop never sees the background, so it can't be affected, but it needs a box for every test image.
+- These shifts are synthetic. Experiment 4 tests a real unseen background type.
 
 <details>
-<summary><b>Macro-F1 at 448 px</b></summary>
+<summary><b>Macro-F1 and training curves</b></summary>
 
-| Model | Original | Blurred BG | Replaced BG |
-|---|---|---|---|
-| Full-image | 0.784 | 0.783 | 0.774 |
-| Bird-crop | **0.807** | **0.807** | **0.807** |
-| BirdShift | 0.787 | 0.787 | 0.786 |
+| Model | 224 px original | blur | replace | 448 px original | blur | replace |
+|---|---|---|---|---|---|---|
+| Full-image | **0.776** | 0.765 | 0.758 | 0.784 | 0.783 | 0.774 |
+| Bird-crop | 0.769 | 0.769 | 0.769 | **0.807** | **0.807** | **0.807** |
+| BirdShift | 0.772 | **0.779** | **0.771** | 0.787 | 0.787 | 0.786 |
+
+![Experiment 1 training curves](results/figures/curves_background.png)
+![Experiment 1 at 448 px training curves](results/figures/curves_background_448.png)
+
+Dots mark the best val epoch. Bird-crop overfits most (99% train accuracy). The 224 px full-image log covers only epochs 21 to 30 ([problem 7](#problems-we-hit-and-how-we-fixed-them)).
 
 </details>
 
-- Higher resolution helps every model, but with our AdamW recipe the numbers stay below the 84.5% reported in the literature. The next section closes that gap.
-- The same pattern holds as at 224 px: the full-image model drops most when the background is replaced (−1.11 pp, 10 images), BirdShift barely moves (−0.23 pp, 2 images), and BirdShift is ahead of the full-image model in all three conditions.
-- At 448 px the bird-crop model is the most accurate, but it still needs a bounding box at test time.
+---
 
-### Matching the published ResNet-50 number
+## Training recipe: matching the published ResNet-50
 
-Fine-grained papers report about **84.5%** test accuracy for a plain ResNet-50 at 448 px on CUB [6, 16]. Our 448 px full-image model reached 80.38% on test, so we compared training recipes one change at a time. All four runs use the full-image model at 448 px with mixed precision. The recipe was picked on val; the test split was evaluated once at the end.
+Fine-grained papers report about **84.5%** CUB test accuracy for a plain ResNet-50 at 448 px [6, 16]. Our first 448 px model reached 80.4%, so we changed one thing at a time, chose on val, and evaluated test once.
 
 | Run | Optimizer | Pretrained weights | Train crop | LR schedule | Epochs | Val | Test (5,794) |
 |---|---|---|---|---|---|---|---|
-| Old recipe (`baseline_448`) | AdamW 1e-4 | timm `a1_in1k` | RandomResizedCrop | constant | 30 | 79.33% | 80.38% |
+| `baseline_448` | AdamW 1e-4 | timm `a1_in1k` | RandomResizedCrop | constant | 30 | 79.33% | 80.38% |
 | `recipe_adamw` | AdamW 1e-4 | timm `a1_in1k` | Resize 512 + RandomCrop 448 | cosine [13] | 50 | 79.44% | 80.74% |
 | `recipe_sgd` | SGD 0.01, head ×10 | timm `a1_in1k` | Resize 512 + RandomCrop 448 | cosine | 50 | 75.00% | 76.08% |
 | `recipe_sgd_tv` | SGD 0.01, head ×10 [14] | torchvision `tv_in1k` [15] | Resize 512 + RandomCrop 448 | cosine | 50 | **84.00%** | **83.88%** |
-| `final_sgd_tv` | same as above, trained on train + val (5,994 images), last epoch | | | | 50 | n/a | **84.55%** |
+| `final_sgd_tv` | same, trained on train + val (5,994), last epoch | | | | 50 | n/a | **84.55%** |
 
 ![Training recipe search curves](results/figures/curves_recipe.png)
 
-- **The pretrained weights were the biggest factor (+7.8 pp test).** timm's default `resnet50` weights (`a1_in1k`) were trained with a heavy augmentation and BCE-loss recipe [11], and they fine-tune worse on CUB than the classic torchvision weights [15] that the published baselines used. This matches Kornblith et al. [12], who found that ImageNet training choices which raise ImageNet accuracy can make features transfer worse to fine-grained datasets.
-- Changing the crop, schedule and epoch count with AdamW adds only 0.4 pp. SGD helps only together with the torchvision weights.
-- Training on all 5,994 official training images instead of holding 900 back adds the last 0.7 pp and **matches the published 84.5%**. That run has no held-out val, so it uses the last epoch, and it is reported on test only.
-- Per-run test numbers are in `results/metrics/test_accuracy.csv`. The background-shift and long-tail experiments above still use the old AdamW recipe; rerunning them with this recipe is on the roadmap.
-
-#### Download the trained model
-
-The 84.55% model is attached to the [v1.0 release](https://github.com/Shafwansafi06/BirdShift/releases/tag/v1.0) (96 MB, weights only, SHA-256 `a647b1bb...869c`).
-
-```bash
-gh release download v1.0 -R Shafwansafi06/BirdShift -p birdshift_resnet50_448_cub.pth
-```
-
-```python
-import torch
-from birdshift.models.resnet import BirdResNet
-
-ck = torch.load("birdshift_resnet50_448_cub.pth", map_location="cpu")
-model = BirdResNet(num_classes=200, pretrained=False)
-model.load_state_dict(ck["model_state_dict"])
-model.eval()  # inputs: Resize(512) + CenterCrop(448) + ImageNet normalisation
-```
+- **Pretrained weights were the biggest factor (+7.8 pp).** timm's default weights come from a heavy-augmentation BCE recipe [11] and transfer worse than the classic torchvision weights, in line with Kornblith et al. [12].
+- This recipe (SGD, cosine, 448 px, torchvision weights) is used for Experiments 3 and 4.
+- The 84.55% model is on the [v1.0 release](https://github.com/Shafwansafi06/BirdShift/releases/tag/v1.0) (96 MB): `gh release download v1.0 -R Shafwansafi06/BirdShift -p birdshift_resnet50_448_cub.pth`, then load it into `BirdResNet(200, pretrained=False)`; inputs are Resize(512) + CenterCrop(448) + ImageNet normalisation.
 
 ---
 
 ## Experiment 2: class imbalance
 
-CUB is almost balanced (about 25 to 30 training images per species), so balancing methods would have little to fix on the original data. Instead the training split is cut down to an exponential long-tail with a 10:1 ratio between the most and least common class. The validation set stays balanced.
-
-```mermaid
-%%{init: {"themeVariables": {"xyChart": {"plotColorPalette": "#64748b"}}}}%%
-xychart-beta
-    title "Training images per class after long-tail subsampling"
-    x-axis "Class rank" ["1", "23", "45", "67", "89", "111", "133", "155", "177", "200"]
-    y-axis "Images" 0 --> 28
-    bar [26, 20, 16, 12, 9, 7, 6, 4, 3, 3]
-```
-
-Class at rank *r* keeps `n_max · 10^(−r/199)` images (at least 1): 5,094 → 2,039 images, 26 down to 3 per class. The class order is a seeded random shuffle, because CUB labels are sorted by taxonomy and otherwise the "tail" would be a single bird family.
-
-### The methods
-
-```mermaid
-flowchart TB
-    LT["Long-tailed train set"] --> CE & WS & CB & LA
-    CE["<b>Standard CE</b><br/>shuffle, plain cross-entropy"]
-    WS["<b>Weighted sampler</b><br/>draw image i with prob ∝ 1 / n<sub>class(i)</sub><br/>every class seen equally often"]
-    CB["<b>Class-balanced CE</b><br/>loss weight w<sub>c</sub> = (1 − β) / (1 − β<sup>n<sub>c</sub></sup>)<br/>β = 0.999 (Cui et al. 2019)"]
-    LA["<b>Logit-adjusted CE</b><br/>train on logits + τ · log π<sub>c</sub><br/>predict with raw logits, τ = 1<br/>(Menon et al. 2021)"]
-    CE --> PH["<b>CE + post-hoc logit adjustment</b><br/>no retraining: subtract τ · log π<sub>c</sub><br/>from the CE model's logits"]
-```
-
-π<sub>c</sub> is the fraction of training images in class *c*. τ was fixed at 1, the value used in the paper, and was not tuned on the validation set.
-
-Head, medium and tail are the top, middle and bottom thirds of classes ranked by how many training images they kept.
-
-### Results
-
-![Long-tail results by class group](results/figures/results_longtail.png)
+CUB is nearly balanced, so the training split is cut to an exponential long tail with a 10:1 ratio: class at rank *r* keeps `n_max · 10^(−r/199)` images, 5,094 → 2,039 images (26 down to 3 per class). Class order is a seeded shuffle, because CUB labels are sorted by taxonomy. Val stays balanced. Head / medium / tail are the top, middle and bottom thirds of classes by training count.
 
 | Method | Top-1 | Macro-F1 | Head | Medium | Tail |
 |---|---|---|---|---|---|
 | Standard CE | 53.00% | 0.477 | **80.20%** | 56.39% | 23.18% |
-| Weighted sampler | **59.78%** | **0.571** | 70.31% | **66.56%** | **42.72%** |
-| Class-balanced CE | 59.33% | 0.563 | 72.35% | 63.28% | 42.72% |
-| **Logit-adjusted CE** | **62.33%** | **0.597** | 73.38% | 64.26% | **49.67%** |
-| CE + post-hoc logit adj. | 59.67% | 0.567 | 74.74% | 63.61% | 41.06% |
+| Weighted sampler (prob ∝ 1/n<sub>c</sub>) | 59.78% | 0.571 | 70.31% | **66.56%** | 42.72% |
+| Class-balanced CE, β = 0.999 [3] | 59.33% | 0.563 | 72.35% | 63.28% | 42.72% |
+| **Logit-adjusted CE**, τ = 1 [5] | **62.33%** | **0.597** | 73.38% | 64.26% | **49.67%** |
+| CE + post-hoc logit adjustment (no retraining) | 59.67% | 0.567 | 74.74% | 63.61% | 41.06% |
 
-**Takeaways**
+![Long-tail results by class group](results/figures/results_longtail.png)
 
-- Plain cross-entropy is good on common classes and poor on rare ones (80% vs 23%).
-- Every balancing method raises overall accuracy by 6 to 9 points, mostly by helping rare classes, and every one gives up some head-class accuracy.
-- **Logit-adjusted CE is the best method here:** highest overall accuracy (+9.3 pp over CE), highest macro-F1 and the best tail accuracy (49.7%, more than double CE). It also loses less on head classes than the weighted sampler.
-- **Post-hoc logit adjustment needs no retraining** and still lifts the CE model from 53.0% to 59.7%, matching the sampler and class-balanced loss while keeping the most head-class accuracy (74.7%).
-- Sampler and class-balanced loss are within 0.5 pp of each other (about 4 images), so this run doesn't separate them.
+- Plain CE is good on common classes and poor on rare ones (80% vs 23%).
+- Logit-adjusted CE is best overall (+9.3 pp) and more than doubles tail accuracy. τ was fixed at 1, not tuned.
+- Post-hoc adjustment lifts the CE model to 59.7% with no retraining.
 
-> **Caveat for both experiments.** Every number above comes from one training run (seed 42) on the 900-image validation split. A 1 pp gap is 9 images. Multi-seed runs and paired significance tests are still to do. The official CUB test split has been used once, only for the training-recipe comparison in [Matching the published ResNet-50 number](#matching-the-published-resnet-50-number), after the recipe had been chosen on val.
+<details>
+<summary><b>Training curves</b></summary>
+
+![Experiment 2 training curves](results/figures/curves_longtail.png)
+
+</details>
 
 ---
 
-## Experiment 3: geographic shift
+## Experiment 3: held-out geographic region
 
-156 CUB species, 56,700 iNaturalist photos (CC0 / CC-BY / CC-BY-NC) clustered by location (`data/splits/geography/`). The model trains on the other regions and is tested on held-out cluster 0, western North America. Same SGD recipe as above, 30 epochs, 448 px. iNaturalist has no bounding boxes, so only the full-image model runs here.
+*Split built by Ankit Kumar ([PR #3](https://github.com/Shafwansafi06/BirdShift/pull/3), [#4](https://github.com/Shafwansafi06/BirdShift/pull/4)); details in [`data/splits/geography/`](data/splits/geography/).*
+
+56,700 iNaturalist research-grade photos (CC0 / CC-BY / CC-BY-NC) of 156 CUB species, clustered by location with k-means on the sphere. Cluster 0, western North America, is held out for test; a 100 km buffer around it is dropped, and no species + observer outing spans train and val. Train 32,083 · val 5,664 · test 18,953. iNaturalist has no bounding boxes, so only the full-image model runs here.
+
+![Geographic clusters](results/figures/geography/clusters_map.png)
 
 | Model | Val, training regions (5,664) | Test, held-out west (18,953) | Drop |
 |---|---|---|---|
-| CUB `final_sgd_tv`, not retrained | 49.91% (balanced 49.73%) | 46.93% (balanced 48.48%) | 3.0 pp |
-| Trained on the geography split (`geo_sgd_tv`, epoch 28) | **81.94%** (balanced 77.84%) | **62.68%** (balanced 73.08%) | **19.3 pp** (balanced 4.8 pp) |
+| CUB model (`final_sgd_tv`, 84.55% on CUB test), not retrained | 49.91% (balanced 49.73%) | 46.93% (balanced 48.48%) | 3.0 pp |
+| Trained on this split (`geo_sgd_tv`, best epoch 28 / 30) | **81.94%** (balanced 77.84%) | **62.68%** (balanced 73.08%) | **19.3 pp** (balanced 4.8 pp) |
 
-- Going from CUB photos to iNaturalist photos costs the CUB model about 35 pp, much more than the regional shift.
-- Most of the 19.3 pp drop is a change in species mix, not in how birds look. Reweighting per-species val accuracy to the test species counts gives 70.25%, so 11.7 pp comes from label shift and 7.6 pp from the region itself. Balanced accuracy, which ignores the mix, falls only 4.8 pp.
-- The most common test species are western birds that are rare in the training regions (2 to 7 val images each), e.g. Rhinoceros Auklet 11.6% (370 test images), Heermann Gull 37.1%, Brewer Blackbird 31.8%, Pelagic Cormorant 26.6%.
+Balanced = mean per-species accuracy.
+
+- Moving from CUB photos to iNaturalist photos costs the CUB model about 35 pp, far more than the regional shift.
+- **Most of the 19.3 pp drop is a change in species mix.** Reweighting per-species val accuracy to the test species counts gives 70.25%: 11.7 pp is label shift and 7.6 pp is the region itself. Balanced accuracy falls only 4.8 pp.
+- The most common test species are western birds rare in the training regions (2 to 7 val images each): Rhinoceros Auklet 11.6% (370 test images), Pelagic Cormorant 26.6%, Brewer Blackbird 31.8%, Heermann Gull 37.1%.
+
+![Experiment 3 training curves](results/figures/curves_geography.png)
 
 ---
 
 ## Experiment 4: held-out background cluster
 
-CUB images clustered by background (`data/splits/background/`). Train on four clusters (8,015 train / 1,423 val), test on the held-out "ground / grass" cluster (2,350 images, 196 species). Same SGD recipe, 30 epochs, 448 px, for all three models. Crop is evaluated on ground-truth box crops.
+*Split built by Agastya Bhanu ([PR #5](https://github.com/Shafwansafi06/BirdShift/pull/5)); details in [`data/splits/background/`](data/splits/background/).*
 
-| Model | Best epoch | Val, training backgrounds | Test, ground / grass | Drop |
+All 11,788 CUB images are clustered by background: ResNet-50 features of the image with the bird's box masked out, k-means with k = 5. The "ground / grass" cluster is held out for test (2,350 images, 196 species); the other four give train 8,015 · val 1,423. Because these are CUB images with boxes, all three models run. The split ignores CUB's official train/test split, so every model here is retrained from ImageNet weights.
+
+<p>
+<img src="results/figures/background_clusters/embedding.png" width="49%" alt="t-SNE of background features">
+<img src="results/figures/background_clusters/cluster_0.png" width="49%" alt="Held-out cluster: ground / grass">
+</p>
+
+Left: t-SNE of background features, by cluster. Right: sample images from the held-out "ground / grass" cluster. Galleries for every cluster, the choice of k and the test-species counts are in [`results/figures/background_clusters/`](results/figures/background_clusters/).
+
+| Model | Best epoch | Val, training backgrounds (1,423) | Test, ground / grass (2,350) | Drop |
 |---|---|---|---|---|
 | Full-image | 25 / 30 | 85.66% (balanced 85.34%) | 83.96% (balanced 82.93%) | 1.7 pp |
 | Bird-crop | 23 / 30 | **86.93%** (balanced 86.81%) | **85.49%** (balanced 83.01%) | 1.4 pp |
 | BirdShift | 30 / 30 | 86.65% (balanced 86.30%) | 84.30% (balanced 82.60%) | 2.4 pp |
 
 - An unseen background type costs every model under 2.5 pp, far less than the 19.3 pp geographic drop.
-- Bird-crop is best on test (+1.5 pp, 36 images over full-image). BirdShift is +0.3 pp (8 images) over full-image, within noise for one seed.
-- Balanced accuracies are within 0.4 pp of each other; 43 test species have fewer than 5 images, so they are noisy.
+- Bird-crop is best on test (+1.5 pp, 36 images over full-image). BirdShift is +0.3 pp (8 images) over full-image, within one-seed noise.
+- 43 test species have fewer than 5 images, so balanced accuracy is noisy.
+
+![Experiment 4 training curves](results/figures/curves_background_split.png)
+
+---
+
+## Setup and running
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install torch torchvision timm pandas scikit-learn pillow matplotlib requests
+```
+
+Tested with Python 3.10, PyTorch 2.14 (CUDA 13), torchvision 0.29, timm 1.0 on an RTX 3090. Get CUB-200-2011 from the [Caltech data repository](https://data.caltech.edu/records/65de6-vp158) and extract it to `data/raw/CUB_200_2011/`. Run everything from the repository root with `PYTHONPATH=src`.
+
+<details>
+<summary><b>Commands for every experiment</b></summary>
+
+```bash
+# Experiment 1 (224 px; add --image-size 448 --amp --run-name <mode>_448 for 448 px)
+for m in full crop birdshift; do python scripts/train.py --mode $m --epochs 30; done
+python scripts/evaluate_shift.py --split val          # results/background_shift/
+
+# Training recipe (84.55% CUB test)
+python scripts/train.py --mode full --epochs 50 --image-size 448 --amp --workers 8 \
+    --train-aug fg --scheduler cosine --optimizer sgd --lr 0.01 --head-lr-mult 10 \
+    --weights resnet50.tv_in1k --train-split trainval --run-name final_sgd_tv
+cp checkpoints/final_sgd_tv/last.pth checkpoints/final_sgd_tv/best.pth
+python scripts/eval_test.py final_sgd_tv
+
+# Experiment 2
+for b in none sampler cb la; do
+  python scripts/train.py --mode full --epochs 30 --imbalance-ratio 10 --balance $b --run-name longtail_${b/none/ce}
+done
+python scripts/evaluate_longtail.py --split val       # also reports post-hoc logit adjustment
+
+# Shared recipe for Experiments 3 and 4
+R="--epochs 30 --image-size 448 --amp --workers 12 --train-aug fg --scheduler cosine \
+   --optimizer sgd --lr 0.01 --head-lr-mult 10 --weights resnet50.tv_in1k"
+
+# Experiment 3 (download images first: scripts/geography/download_inat.py -> data/raw/inat_geo)
+M=data/splits/geography/geography_clusters.csv
+python scripts/train.py --manifest $M --mode full $R --run-name geo_sgd_tv
+python scripts/eval_test.py geo_sgd_tv final_sgd_tv --manifest $M --splits val test
+
+# Experiment 4
+M=data/splits/background/background_clusters.csv
+for m in full crop birdshift; do python scripts/train.py --manifest $M --mode $m $R --run-name bg_${m}_sgd_tv; done
+python scripts/eval_test.py bg_full_sgd_tv bg_crop_sgd_tv bg_birdshift_sgd_tv --manifest $M --splits val test
+
+# Figures and checks
+python scripts/plot_results.py
+for t in tests/test_*.py; do python $t; done
+```
+
+Each run writes `checkpoints/<run>/best.pth` and `last.pth` (not in git) and `results/metrics/cub_<run>_training.csv`. `python scripts/train.py --help` lists every flag.
+
+</details>
+
+<details>
+<summary><b>Repository layout</b></summary>
+
+```
+src/birdshift/
+  datasets/cub.py          CUBDataset (official or manifest split; full / crop / birdshift), long-tail subsampling
+  datasets/manifest.py     ManifestDataset for iNaturalist manifests
+  models/resnet.py         BirdResNet (timm ResNet-50 + 200-way head)
+  transforms/background.py background blur / replace, SquarePad
+  training/trainer.py      train_one_epoch (optional mixed precision)
+scripts/                   train.py, eval_test.py, evaluate_shift.py, evaluate_longtail.py, plot_results.py,
+                           geography/ (iNaturalist download + clustering), background/ (background clustering)
+data/splits/               geography and background split manifests with their own READMEs
+results/                   metrics, per-image predictions, figures
+tests/                     runnable checks
+```
+
+</details>
 
 ---
 
 ## Problems we hit and how we fixed them
 
-| # | Problem | How we noticed | Fix |
-|---|---|---|---|
-| 1 | **Bird-crop model stuck at 40% accuracy.** Bounding-box crops were resized straight to 224×224, which stretched tall and wide birds out of shape. | Crop model far below the full-image model (40.3% vs 78%). | Pad each crop to a square with gray (`SquarePad`) before resizing, and add flip / rotation / colour-jitter augmentation. Accuracy went 40.3% → 70.1% → **77.9%**. |
-| 2 | **Two evaluation scripts could silently disagree.** `evaluate.py` and `evaluate_shift.py` build their inputs differently. | Needed to trust that "original" in the shift experiment equals normal evaluation. | `scripts/audit_evaluators.py` compares both pipelines image by image: 0 tensor mismatches, 0 prediction mismatches, identical 78.33%. Saved in `results/metrics/evaluation_audit.json`. |
-| 3 | **Background replacement could leak information.** Pasting the bird onto another photo's background can bring in a second bird or a species-typical habitat. | Design review of the `replace` condition. | Replace the background with flat neutral gray instead of a donor image. |
-| 4 | **BirdShift checkpoints written into the crop folder.** A leftover line in `train.py` sent every non-`full` run to `checkpoints/crop/`, so BirdShift overwrote `crop/last.pth`. | A checkpoint in `checkpoints/crop/` had `mode = birdshift` stored inside it. | Removed the override so each mode gets its own folder; recovered checkpoints moved to `checkpoints/recovery/`. The crop model's `best.pth` was never touched. |
-| 5 | **`--suppression-prob` did nothing.** The flag was parsed but never passed to the dataset. | Reading `train.py` while checking the folder bug. | Passed through to `CUBDataset`. Existing results are unaffected because the dataset default was already 0.5. |
-| 6 | **BirdShift model refused to load for evaluation.** The loader checks that a checkpoint's stored mode matches the requested one. BirdShift is stored as `birdshift` but is evaluated with full-image preprocessing. | `ValueError: Checkpoint mode='birdshift', requested mode='full'`. | `evaluate_shift.py` now keeps the model name (checked against the checkpoint) separate from the preprocessing mode. |
-| 7 | **Baseline improved after more epochs, but early log lost.** The first full-image run stopped at epoch 20 (77.56%). | Validation accuracy still rising at epoch 20. | Resumed with `--resume` to epoch 30 (**78.33%**). Only epochs 21 to 30 of the log survived, which is why its curve starts at epoch 21. |
-| 8 | **PyTorch crashed under the system Python.** | `A module that was compiled using NumPy 1.x cannot be run in NumPy 2.2.6`. | All work runs inside the project virtual environment (`.venv`). |
-| 9 | **CUB is too balanced to test imbalance methods.** About 25 to 30 training images per species. | Balancing would have little to correct. | Built an exponential long-tail training split (10:1). Classes are shuffled with a fixed seed first, because CUB labels are sorted by taxonomy and the tail would otherwise be one bird family. |
-| 10 | **Training log and evaluation differ by one image** (59.89% vs 59.78%, 78.33% vs 78.22%). | Comparing logs with evaluation output. | Most likely GPU nondeterminism (`cudnn.benchmark` is on during training) flipping one near-tie prediction. All results tables use the evaluation-script numbers. |
-| 11 | **Stuck about 4 points below the published ResNet-50 baseline at 448 px.** | 80.4% test against 84.5% in the literature. | Ablated one change at a time. The cause was timm's default `a1_in1k` weights; switching to torchvision weights with SGD, cosine LR and a 10× head learning rate gave 83.9%, and training on train + val gave **84.55%**. |
-
----
-
-## Setup
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install torch torchvision timm pandas scikit-learn pillow matplotlib
-```
-
-Tested with Python 3.10, PyTorch 2.14 (CUDA 13), torchvision 0.29, timm 1.0 on an RTX 3090.
-
 <details>
-<summary><b>Download the dataset</b></summary>
+<summary><b>13 problems</b></summary>
 
-CUB-200-2011 is available from the [Caltech data repository](https://data.caltech.edu/records/65de6-vp158). It is not tracked in git.
-
-```bash
-mkdir -p data/raw && cd data/raw
-wget -O CUB_200_2011.tgz "https://data.caltech.edu/records/65de6-vp158/files/CUB_200_2011.tgz?download=1"
-tar -xzf CUB_200_2011.tgz && cd ../..
-```
-
-Expected layout:
-
-```
-data/raw/CUB_200_2011/
-├── images/
-├── images.txt
-├── image_class_labels.txt
-├── train_test_split.txt
-└── bounding_boxes.txt
-```
-
-</details>
-
----
-
-## Running the code
-
-Run everything from the repository root.
-
-<details open>
-<summary><b>Experiment 1: train and evaluate</b></summary>
-
-```bash
-PYTHONPATH=src python scripts/train.py --mode full      --epochs 30   # checkpoints/baseline/
-PYTHONPATH=src python scripts/train.py --mode crop      --epochs 30   # checkpoints/crop/
-PYTHONPATH=src python scripts/train.py --mode birdshift --epochs 30   # checkpoints/birdshift/
-
-PYTHONPATH=src python scripts/evaluate_shift.py --split val           # results/background_shift/
-
-# Same experiment at 448 px with mixed precision
-for m in full crop birdshift; do
-  PYTHONPATH=src python scripts/train.py --mode $m --epochs 30 --image-size 448 --amp \
-      --workers 8 --run-name ${m/full/baseline}_448
-done
-PYTHONPATH=src python scripts/evaluate_shift.py --split val --output results/background_shift_448 \
-    --full-checkpoint checkpoints/baseline_448/best.pth --crop-checkpoint checkpoints/crop_448/best.pth \
-    --birdshift-checkpoint checkpoints/birdshift_448/best.pth
-```
-
-The evaluation script reads the image size from each checkpoint.
-
-```bash
-# Recipe that matches the published ResNet-50 number (84.55% test)
-PYTHONPATH=src python scripts/train.py --mode full --epochs 50 --image-size 448 --amp --workers 8 \
-    --train-aug fg --scheduler cosine --optimizer sgd --lr 0.01 --head-lr-mult 10 \
-    --weights resnet50.tv_in1k --train-split trainval --run-name final_sgd_tv
-cp checkpoints/final_sgd_tv/last.pth checkpoints/final_sgd_tv/best.pth
-PYTHONPATH=src python scripts/eval_test.py final_sgd_tv        # top-1 on the official test split
-```
-
-Drop `--train-split trainval` to keep the 900 val images held out (`recipe_sgd_tv`).
-
-```bash
-# Experiment 3: geographic shift (images from scripts/geography/download_inat.py, saved under data/raw/inat_geo)
-M=data/splits/geography/geography_clusters.csv
-PYTHONPATH=src python scripts/train.py --manifest $M --mode full --epochs 30 --image-size 448 --amp \
-    --workers 12 --train-aug fg --scheduler cosine --optimizer sgd --lr 0.01 --head-lr-mult 10 \
-    --weights resnet50.tv_in1k --run-name geo_sgd_tv
-PYTHONPATH=src python scripts/eval_test.py geo_sgd_tv final_sgd_tv --manifest $M --splits val test
-
-# Experiment 4: held-out background cluster (CUB images, so all three modes work)
-M=data/splits/background/background_clusters.csv
-for m in full crop birdshift; do
-  PYTHONPATH=src python scripts/train.py --manifest $M --mode $m --epochs 30 --image-size 448 --amp \
-      --workers 12 --train-aug fg --scheduler cosine --optimizer sgd --lr 0.01 --head-lr-mult 10 \
-      --weights resnet50.tv_in1k --run-name bg_${m}_sgd_tv
-done
-PYTHONPATH=src python scripts/eval_test.py bg_full_sgd_tv bg_crop_sgd_tv bg_birdshift_sgd_tv --manifest $M --splits val test
-```
-
-</details>
-
-<details open>
-<summary><b>Experiment 2: train and evaluate</b></summary>
-
-```bash
-for b in none sampler cb la; do
-  PYTHONPATH=src python scripts/train.py --mode full --epochs 30 \
-      --imbalance-ratio 10 --balance $b --run-name longtail_${b/none/ce}
-done
-
-PYTHONPATH=src python scripts/evaluate_longtail.py --split val        # results/longtail/
-```
-
-`evaluate_longtail.py` also reports post-hoc logit adjustment on the standard-CE checkpoint, so it needs no extra training. Three 224 px runs fit on one 24 GB GPU at the same time.
-
-</details>
-
-<details>
-<summary><b>All <code>train.py</code> options</b></summary>
-
-| Flag | Default | Meaning |
+| # | Problem | Fix |
 |---|---|---|
-| `--mode` | `full` | `full`, `crop` or `birdshift` |
-| `--suppression-prob` | `0.5` | BirdShift: probability of blurring a training image's background |
-| `--imbalance-ratio` | `1` | Long-tail training split, max/min class size (1 = original data) |
-| `--balance` | `none` | `none` (cross-entropy), `sampler` (WeightedRandomSampler), `cb` (class-balanced loss), `la` (logit-adjusted loss) |
-| `--cb-beta` | `0.999` | β for class-balanced loss |
-| `--la-tau` | `1.0` | τ for logit-adjusted loss |
-| `--image-size` | `224` | Training and evaluation resolution; stored in the checkpoint |
-| `--amp` | off | float16 mixed precision with `channels_last` (about 2× less memory) |
-| `--optimizer` | `adamw` | `adamw` or `sgd` (Nesterov) |
-| `--weight-decay` | `0.01` / `1e-4` | Default depends on the optimizer |
-| `--momentum` | `0.9` | SGD momentum |
-| `--scheduler` | `none` | `none` or `cosine` (stepped once per epoch) |
-| `--head-lr-mult` | `1` | Learning-rate multiplier for the new 200-class layer |
-| `--train-aug` | `rrc` | `rrc` (RandomResizedCrop) or `fg` (Resize size·8/7 + RandomCrop) |
-| `--weights` | `resnet50` | timm pretrained weights, e.g. `resnet50.tv_in1k` |
-| `--train-split` | `train` | `trainval` also trains on the 900 val images (use `last.pth`) |
-| `--run-name` | by mode | Folder under `checkpoints/` and name of the training log |
-| `--resume` | | Continue from a `last.pth`; `--epochs` is the total, not extra |
-| `--epochs` | `20` | |
-| `--batch-size` | `64` | |
-| `--lr` | `1e-4` | |
-| `--workers` | `4` | |
-
-Each run writes `best.pth` (best val accuracy) and `last.pth` to `checkpoints/<run>/`, and a per-epoch log to `results/metrics/cub_<run>_training.csv`.
+| 1 | Bird-crop stuck at 40%: crops were stretched to a square. | Pad to square with gray before resizing, add augmentation: 40.3% → **77.9%**. |
+| 2 | Two evaluation scripts could silently disagree. | `scripts/audit_evaluators.py`: 0 tensor and 0 prediction mismatches. |
+| 3 | Background replacement with another photo can leak a second bird or habitat. | Replace with flat neutral gray. |
+| 4 | BirdShift checkpoints overwrote the crop folder. | Each mode gets its own folder; crop `best.pth` was never touched. |
+| 5 | `--suppression-prob` was parsed but never used. | Passed to the dataset (default was already 0.5, results unaffected). |
+| 6 | BirdShift checkpoint refused to load with full-image preprocessing. | Model name and preprocessing mode kept separate in `evaluate_shift.py`. |
+| 7 | Full-image run stopped at epoch 20; early log lost on resume. | Resumed to epoch 30 (78.33%); curve starts at epoch 21. |
+| 8 | System Python: NumPy 1.x vs 2.2.6 crash. | Everything runs in `.venv`. |
+| 9 | CUB too balanced to test imbalance methods. | Built a seeded 10:1 long-tail training split. |
+| 10 | Training log and evaluation differ by one image. | GPU nondeterminism on a near-tie; tables use evaluation-script numbers. |
+| 11 | 4 pp below the published ResNet-50 at 448 px. | timm `a1_in1k` weights were the cause; torchvision weights + SGD → **84.55%**. |
+| 12 | Geography manifest had photos with conflicting species labels and duplicates. | 7 conflicting photos removed, 5 duplicates merged; uniqueness asserted. |
+| 13 | Background clustering gave different cluster ids on rerun. | Assignment uses saved centroids (99.07% agreement); committed CSV is canonical. |
 
 </details>
-
-<details>
-<summary><b>Figures, sanity checks and tests</b></summary>
-
-```bash
-PYTHONPATH=src python scripts/visualize_shift.py       # original / blur / replace triplets
-PYTHONPATH=src python scripts/visualize_birdshift.py   # BirdShift training samples
-PYTHONPATH=src python scripts/audit_evaluators.py      # evaluate.py and evaluate_shift.py agree
-python scripts/plot_results.py                         # all training-curve and result figures
-
-PYTHONPATH=src python tests/test_background.py         # bounding box is preserved by the shifts
-PYTHONPATH=src python tests/test_longtail.py           # long-tail split is deterministic, val untouched
-```
-
-Use `--split test` on the evaluation scripts for the official test set (5,794 images). Settle every design choice on val first.
-
-</details>
-
----
-
-## Repository layout
-
-```mermaid
-flowchart LR
-    subgraph src["src/birdshift"]
-        DS["datasets/cub.py<br/>CUBDataset, make_long_tailed"]
-        MD["models/resnet.py<br/>BirdResNet"]
-        TF["transforms/background.py<br/>background_variant, SquarePad"]
-        TT["training/trainer.py<br/>train_one_epoch"]
-    end
-    subgraph scripts
-        TRN["train.py"]
-        ES["evaluate_shift.py"]
-        EL["evaluate_longtail.py"]
-    end
-    TRN --> DS & MD & TT
-    DS --> TF
-    ES --> DS & MD & TF
-    EL --> ES
-    TRN --> CK[("checkpoints/")]
-    ES & EL --> RS[("results/")]
-```
-
-```
-BirdShift/
-├── src/birdshift/      library code (dataset, model, transforms, training loop)
-├── scripts/            training, evaluation and visualisation entry points
-├── tests/              runnable checks
-├── results/            metrics, per-image predictions, figures
-├── data/raw/           CUB-200-2011 (not in git)
-└── checkpoints/        model weights, ~290 MB each (not in git)
-```
 
 ---
 
 ## Roadmap
 
-- [x] Full-image, bird-crop and BirdShift models
-- [x] Controlled background-shift evaluation
-- [x] Class-imbalance comparison: cross-entropy, weighted sampler, class-balanced loss
-- [x] Logit adjustment, trained and post-hoc
-- [x] 448 px training with mixed precision
-- [x] Training recipe that matches the published ResNet-50 baseline (84.55% test)
-- [ ] Rerun the background-shift and long-tail experiments with the SGD recipe
-- [ ] Test-split numbers for every model, multiple seeds, paired significance tests
-- [x] Geographic clustering of images
-- [x] Background clustering of images
-- [x] Train on held-out geographic clusters (Experiment 3)
-- [x] Train all three models on the held-out background cluster (Experiment 4)
+- [x] Full-image, bird-crop and BirdShift; synthetic background shift
+- [x] Long-tail comparison including logit adjustment
+- [x] Recipe matching the published ResNet-50 (84.55%)
+- [x] Held-out region (Exp 3) and held-out background cluster (Exp 4)
+- [ ] Rerun Experiments 1 and 2 with the SGD recipe
+- [ ] Multiple seeds and paired significance tests
 
 ## References
 
@@ -542,9 +296,10 @@ BirdShift/
 8. I. Loshchilov, F. Hutter. *Decoupled Weight Decay Regularization.* ICLR 2019.
 9. J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, L. Fei-Fei. *ImageNet: A Large-Scale Hierarchical Image Database.* CVPR 2009.
 10. R. Wightman. *PyTorch Image Models (timm).* GitHub, 2019.
-11. R. Wightman, H. Touvron, H. Jégou. *ResNet Strikes Back: An Improved Training Procedure in timm.* NeurIPS 2021 Workshop on ImageNet: Past, Present, and Future.
+11. R. Wightman, H. Touvron, H. Jégou. *ResNet Strikes Back: An Improved Training Procedure in timm.* NeurIPS 2021 Workshop.
 12. S. Kornblith, J. Shlens, Q. V. Le. *Do Better ImageNet Models Transfer Better?* CVPR 2019.
 13. I. Loshchilov, F. Hutter. *SGDR: Stochastic Gradient Descent with Warm Restarts.* ICLR 2017.
 14. I. Sutskever, J. Martens, G. Dahl, G. Hinton. *On the Importance of Initialization and Momentum in Deep Learning.* ICML 2013.
-15. A. Paszke et al. *PyTorch: An Imperative Style, High-Performance Deep Learning Library.* NeurIPS 2019 (torchvision ResNet-50 ImageNet weights).
+15. A. Paszke et al. *PyTorch: An Imperative Style, High-Performance Deep Learning Library.* NeurIPS 2019 (torchvision ResNet-50 weights).
 16. Z. Li, Y. Yang, X. Liu, F. Zhou, S. Wen, W. Xu. *Dynamic Computational Time for Visual Attention.* ICCV 2017 Workshops.
+17. G. Van Horn et al. *The iNaturalist Species Classification and Detection Dataset.* CVPR 2018.

@@ -16,7 +16,9 @@ COLORS = {"Full-image": "#2563eb", "Bird-crop": "#f59e0b", "BirdShift": "#16a34a
           "Standard CE": "#2563eb", "Weighted sampler": "#f59e0b", "Class-balanced CE": "#16a34a",
           "Logit-adjusted CE": "#dc2626", "CE + post-hoc LA": "#9333ea",
           "AdamW (old recipe)": "#94a3b8", "AdamW + fg crop + cosine": "#2563eb",
-          "SGD, timm a1 weights": "#f59e0b", "SGD, torchvision weights": "#16a34a"}
+          "SGD, timm a1 weights": "#f59e0b", "SGD, torchvision weights": "#16a34a",
+          "CUB model (not retrained)": "#94a3b8", "Val (training clusters)": "#2563eb",
+          "Test (held-out cluster)": "#dc2626"}
 
 
 def read_log(name):
@@ -47,7 +49,7 @@ def plot_curves(runs, title, path):
     plt.close(fig)
 
 
-def grouped_bars(groups, series, ylabel, title, path, ylim=None):
+def grouped_bars(groups, series, ylabel, title, path, ylim=None, legend_loc="upper right"):
     fig, ax = plt.subplots(figsize=(10, 4.8))
     width = 0.8 / len(series)
     for i, (label, values) in enumerate(series.items()):
@@ -59,7 +61,7 @@ def grouped_bars(groups, series, ylabel, title, path, ylim=None):
     if ylim:
         ax.set_ylim(*ylim)
     ax.grid(axis="y", alpha=.3)
-    ax.legend(loc="upper right")
+    ax.legend(loc=legend_loc)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -98,6 +100,25 @@ def main():
                   [r[k] * 100 for k in keys] for r in lt},
                  "Top-1 accuracy (%)", "Long-tail methods by class frequency, CUB val",
                  OUT / "results_longtail.png", ylim=(0, 95))
+    plot_curves({"Full-image": "geo_sgd_tv"},
+                "Experiment 3: geography split (iNaturalist, 448 px, SGD recipe)", OUT / "curves_geography.png")
+    plot_curves({"Full-image": "bg_full_sgd_tv", "Bird-crop": "bg_crop_sgd_tv", "BirdShift": "bg_birdshift_sgd_tv"},
+                "Experiment 4: background-cluster split (448 px, SGD recipe)", OUT / "curves_background_split.png")
+
+    # Experiments 3 and 4: val (training clusters) vs test (held-out cluster)
+    with (METRICS / "split_shift_accuracy.csv").open() as f:
+        rows = list(csv.DictReader(f))
+    acc = {(r["experiment"], r["model"], r["split"]): float(r["top1"]) * 100 for r in rows}
+    groups = [("geography", "CUB model (not retrained)", "Geography:\nCUB model, not retrained"),
+              ("geography", "Full-image", "Geography:\nfull-image"),
+              ("background", "Full-image", "Background:\nfull-image"),
+              ("background", "Bird-crop", "Background:\nbird-crop"),
+              ("background", "BirdShift", "Background:\nBirdShift")]
+    grouped_bars([g[2] for g in groups],
+                 {"Val (training clusters)": [acc[(e, m, "val")] for e, m, _ in groups],
+                  "Test (held-out cluster)": [acc[(e, m, "test")] for e, m, _ in groups]},
+                 "Top-1 accuracy (%)", "Held-out cluster tests: training clusters vs held-out cluster",
+                 OUT / "results_split_shift.png", ylim=(40, 92), legend_loc="upper left")
     print("Saved:", *sorted(p.name for p in OUT.glob("*.png")))
 
 

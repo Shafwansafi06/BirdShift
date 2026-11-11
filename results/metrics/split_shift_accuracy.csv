@@ -1,0 +1,11 @@
+experiment,run,model,split,images,species,epoch,correct,top1,balanced
+geography,final_sgd_tv,CUB model (not retrained),val,5664,156,50,2827,0.4991,0.4973
+geography,final_sgd_tv,CUB model (not retrained),test,18953,156,50,8894,0.4693,0.4848
+geography,geo_sgd_tv,Full-image,val,5664,156,28,4641,0.8194,0.7784
+geography,geo_sgd_tv,Full-image,test,18953,156,28,11880,0.6268,0.7308
+background,bg_full_sgd_tv,Full-image,val,1423,200,25,1219,0.8566,0.8534
+background,bg_full_sgd_tv,Full-image,test,2350,196,25,1973,0.8396,0.8293
+background,bg_crop_sgd_tv,Bird-crop,val,1423,200,23,1237,0.8693,0.8681
+background,bg_crop_sgd_tv,Bird-crop,test,2350,196,23,2009,0.8549,0.8301
+background,bg_birdshift_sgd_tv,BirdShift,val,1423,200,30,1233,0.8665,0.8630
+background,bg_birdshift_sgd_tv,BirdShift,test,2350,196,30,1981,0.8430,0.8260
