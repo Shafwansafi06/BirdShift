@@ -58,6 +58,7 @@ Best checkpoint of each run, chosen by validation accuracy. "Val (training log)"
 | Bird-crop, 448 px | 5,094 images | 26 / 30 | 81.33% | **81.33%** | `checkpoints/crop_448/best.pth` |
 | BirdShift, 448 px | 5,094 images | 27 / 30 | 79.67% | **79.67%** | `checkpoints/birdshift_448/best.pth` |
 | Full-image, 448 px, SGD recipe | 5,094 images | 45 / 50 | 84.00% | **84.00%** | `checkpoints/recipe_sgd_tv/best.pth` |
+| Geography split, SGD recipe | 32,083 iNat images | 28 / 30 | 81.94% | **81.94%** | `checkpoints/geo_sgd_tv/best.pth` |
 | Full-image, 448 px, SGD recipe, final | 5,994 images (train + val) | 50 / 50 | n/a | n/a, **84.55% test** | `checkpoints/final_sgd_tv/last.pth` |
 
 The long-tail runs see 60% fewer training images than the first three, so their absolute accuracy should only be compared with each other.
@@ -268,6 +269,21 @@ Head, medium and tail are the top, middle and bottom thirds of classes ranked by
 
 ---
 
+## Experiment 3: geographic shift
+
+156 CUB species, 56,700 iNaturalist photos (CC0 / CC-BY / CC-BY-NC) clustered by location (`data/splits/geography/`). The model trains on the other regions and is tested on held-out cluster 0, western North America. Same SGD recipe as above, 30 epochs, 448 px. iNaturalist has no bounding boxes, so only the full-image model runs here.
+
+| Model | Val, training regions (5,664) | Test, held-out west (18,953) | Drop |
+|---|---|---|---|
+| CUB `final_sgd_tv`, not retrained | 49.91% (balanced 49.73%) | 46.93% (balanced 48.48%) | 3.0 pp |
+| Trained on the geography split (`geo_sgd_tv`, epoch 28) | **81.94%** (balanced 77.84%) | **62.68%** (balanced 73.08%) | **19.3 pp** (balanced 4.8 pp) |
+
+- Going from CUB photos to iNaturalist photos costs the CUB model about 35 pp, much more than the regional shift.
+- Most of the 19.3 pp drop is a change in species mix, not in how birds look. Reweighting per-species val accuracy to the test species counts gives 70.25%, so 11.7 pp comes from label shift and 7.6 pp from the region itself. Balanced accuracy, which ignores the mix, falls only 4.8 pp.
+- The most common test species are western birds that are rare in the training regions (2 to 7 val images each), e.g. Rhinoceros Auklet 11.6% (370 test images), Heermann Gull 37.1%, Brewer Blackbird 31.8%, Pelagic Cormorant 26.6%.
+
+---
+
 ## Problems we hit and how we fixed them
 
 | # | Problem | How we noticed | Fix |
@@ -357,6 +373,15 @@ PYTHONPATH=src python scripts/eval_test.py final_sgd_tv        # top-1 on the of
 ```
 
 Drop `--train-split trainval` to keep the 900 val images held out (`recipe_sgd_tv`).
+
+```bash
+# Experiment 3: geographic shift (images from scripts/geography/download_inat.py, saved under data/raw/inat_geo)
+M=data/splits/geography/geography_clusters.csv
+PYTHONPATH=src python scripts/train.py --manifest $M --mode full --epochs 30 --image-size 448 --amp \
+    --workers 12 --train-aug fg --scheduler cosine --optimizer sgd --lr 0.01 --head-lr-mult 10 \
+    --weights resnet50.tv_in1k --run-name geo_sgd_tv
+PYTHONPATH=src python scripts/eval_test.py geo_sgd_tv final_sgd_tv --manifest $M --splits val test
+```
 
 </details>
 
@@ -472,9 +497,10 @@ BirdShift/
 - [x] Training recipe that matches the published ResNet-50 baseline (84.55% test)
 - [ ] Rerun the background-shift and long-tail experiments with the SGD recipe
 - [ ] Test-split numbers for every model, multiple seeds, paired significance tests
-- [ ] Geographic clustering of images
-- [ ] Background clustering of images
-- [ ] Train on some clusters, test on held-out clusters
+- [x] Geographic clustering of images
+- [x] Background clustering of images
+- [x] Train on held-out geographic clusters (Experiment 3)
+- [ ] Train all three models on the background-cluster split
 
 ## References
 

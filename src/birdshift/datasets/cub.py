@@ -11,6 +11,28 @@ import random
 import numpy as np
 
 
+NORMALIZE = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
+
+def full_image_transform(train, image_size=224, train_aug="rrc"):
+    """Full-image pipeline shared by CUBDataset ('full' / 'birdshift') and ManifestDataset.
+
+    train: rrc = ImageNet-style RandomResizedCrop (can keep only 8% of the image);
+           fg  = fine-grained style Resize(size*8/7) + RandomCrop(size), bird stays in frame.
+    eval:  Resize(size*8/7) + CenterCrop(size).
+    """
+    if not train:
+        return transforms.Compose([
+            transforms.Resize(image_size * 8 // 7), transforms.CenterCrop(image_size),
+            transforms.ToTensor(), NORMALIZE,
+        ])
+    if train_aug not in {"rrc", "fg"}:
+        raise ValueError("train_aug must be rrc or fg")
+    crop = (transforms.RandomResizedCrop(image_size) if train_aug == "rrc" else
+            transforms.Compose([transforms.Resize(image_size * 8 // 7), transforms.RandomCrop(image_size)]))
+    return transforms.Compose([crop, transforms.RandomHorizontalFlip(), transforms.ToTensor(), NORMALIZE])
+
+
 def make_long_tailed(df, ratio, seed=42):
     """Subsample a split to an exponential long-tail profile.
 
@@ -94,26 +116,9 @@ class CUBDataset(Dataset):
                     SquarePad(), transforms.Resize((image_size, image_size)),
                     transforms.ToTensor(), normalize,
                 ])
-        elif split == "train":
-            # 'birdshift' and 'full' use the identical post-perturbation pipeline.
-            # rrc: ImageNet-style RandomResizedCrop (can keep only 8% of the image).
-            # fg: fine-grained style Resize(size*8/7) + RandomCrop(size), bird stays in frame.
-            if train_aug not in {"rrc", "fg"}:
-                raise ValueError("train_aug must be rrc or fg")
-            crop = (transforms.RandomResizedCrop(image_size) if train_aug == "rrc" else
-                    transforms.Compose([transforms.Resize(image_size * 8 // 7),
-                                        transforms.RandomCrop(image_size)]))
-            self.transform = transforms.Compose([
-                crop,
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(), normalize,
-            ])
         else:
-            # Exact same evaluation pipeline as the full-image baseline.
-            self.transform = transforms.Compose([
-                transforms.Resize(image_size * 8 // 7), transforms.CenterCrop(image_size),
-                transforms.ToTensor(), normalize,
-            ])
+            # 'birdshift' and 'full' use the identical post-perturbation pipeline.
+            self.transform = full_image_transform(split == "train", image_size, train_aug)
 
     def __len__(self):
         return len(self.data)

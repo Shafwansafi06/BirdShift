@@ -9,6 +9,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from birdshift.datasets.cub import CUBDataset
+from birdshift.datasets.manifest import ManifestDataset
 from birdshift.models.resnet import BirdResNet
 from birdshift.training.trainer import train_one_epoch
 
@@ -63,6 +64,11 @@ def main():
                         help="rrc=RandomResizedCrop, fg=Resize+RandomCrop (fine-grained style)")
     parser.add_argument("--weights", default="resnet50",
                         help="timm pretrained weights, e.g. resnet50 or resnet50.tv_in1k")
+    parser.add_argument("--manifest", default="",
+                        help="Train/val from a split manifest CSV instead of CUB, e.g. "
+                             "data/splits/geography/geography_clusters.csv (full-image mode only)")
+    parser.add_argument("--manifest-root", default="data/raw",
+                        help="Folder that manifest image_path values are relative to")
     parser.add_argument("--run-name", default="",
                         help="Checkpoint/log name; defaults to the mode's directory")
     args = parser.parse_args()
@@ -73,15 +79,24 @@ def main():
         torch.backends.cudnn.benchmark = True
     print("Device:", device)
 
-    train_ds = CUBDataset(args.data_root, split=args.train_split, mode=args.mode,
-                          suppression_prob=args.suppression_prob,
-                          imbalance_ratio=args.imbalance_ratio,
-                          image_size=args.image_size, train_aug=args.train_aug)
-    val_ds = CUBDataset(args.data_root, split="val", mode=args.mode, image_size=args.image_size)
+    if args.manifest:
+        if args.mode != "full" or args.imbalance_ratio > 1 or args.train_split != "train":
+            parser.error("--manifest supports --mode full only, without --imbalance-ratio or --train-split")
+        train_ds = ManifestDataset(args.manifest, args.manifest_root, "train", args.image_size, args.train_aug)
+        val_ds = ManifestDataset(args.manifest, args.manifest_root, "val", args.image_size)
+    else:
+        train_ds = CUBDataset(args.data_root, split=args.train_split, mode=args.mode,
+                              suppression_prob=args.suppression_prob,
+                              imbalance_ratio=args.imbalance_ratio,
+                              image_size=args.image_size, train_aug=args.train_aug)
+        val_ds = CUBDataset(args.data_root, split="val", mode=args.mode, image_size=args.image_size)
     loader_options = dict(batch_size=args.batch_size, num_workers=args.workers,
                           pin_memory=device.type == "cuda")
     labels = torch.tensor(train_ds.data["label"].values)
     counts = torch.bincount(labels, minlength=200).float()
+    if args.balance != "none" and (counts == 0).any():
+        parser.error(f"--balance {args.balance} needs every class in the training set; "
+                     f"{int((counts == 0).sum())} classes have no images")
     print(f"Train images: {len(train_ds)} | per-class max={int(counts.max())} min={int(counts.min())}")
     sampler = None
     if args.balance == "sampler":
@@ -187,6 +202,7 @@ def main():
                 "imbalance_ratio": args.imbalance_ratio,
                 "balance": args.balance,
                 "image_size": args.image_size,
+                "manifest": args.manifest,
             }
             torch.save(checkpoint, run_dir / "last.pth")
             if improved:
