@@ -11,6 +11,8 @@ Context-debiased fine-grained bird recognition under background, geography and l
 
 Bird classifiers often learn the scene instead of the bird: a heron is "the bird near water". We measure how much a ResNet-50 relies on that context, train a model that relies on it less (BirdShift), test on held-out backgrounds and held-out regions, and compare fixes for long-tailed training data.
 
+Slides: [`presentation/birdshift.pdf`](presentation/birdshift.pdf).
+
 **Contents:** [Results at a glance](#results-at-a-glance) · [Exp 1: synthetic background shift](#experiment-1-synthetic-background-shift) · [Training recipe](#training-recipe-matching-the-published-resnet-50) · [Exp 2: class imbalance](#experiment-2-class-imbalance) · [Exp 3: geography](#experiment-3-held-out-geographic-region) · [Exp 4: held-out background](#experiment-4-held-out-background-cluster) · [Setup and running](#setup-and-running) · [Problems and fixes](#problems-we-hit-and-how-we-fixed-them) · [References](#references)
 
 ---
@@ -96,6 +98,7 @@ Fine-grained papers report about **84.5%** CUB test accuracy for a plain ResNet-
 - **Pretrained weights were the biggest factor (+7.8 pp).** timm's default weights come from a heavy-augmentation BCE recipe [11] and transfer worse than the classic torchvision weights, in line with Kornblith et al. [12].
 - This recipe (SGD, cosine, 448 px, torchvision weights) is used for Experiments 3 and 4.
 - The 84.55% model is on the [v1.0 release](https://github.com/Shafwansafi06/BirdShift/releases/tag/v1.0) (96 MB): `gh release download v1.0 -R Shafwansafi06/BirdShift -p birdshift_resnet50_448_cub.pth`, then load it into `BirdResNet(200, pretrained=False)`; inputs are Resize(512) + CenterCrop(448) + ImageNet normalisation.
+- The [v1.1 release](https://github.com/Shafwansafi06/BirdShift/releases/tag/v1.1) adds the four held-out split models from Experiments 3 and 4 (geography full-image; background-split full-image, bird-crop and BirdShift). The v1.0 file is the full-image model; "birdshift" in its name is the project name.
 
 ---
 
