@@ -101,7 +101,7 @@ cub_label,cub_name,inat_taxon_id,inat_name,match_type,inat_common_name,review
 99,Brown_Pelican,4328,Pelecanus occidentalis,exact,Brown Pelican,
 100,White_Pelican,4334,Pelecanus erythrorhynchos,manual,American White Pelican,
 101,Western_Wood_Pewee,16079,Contopus sordidulus,exact,Western Wood-Pewee,
-102,Sayornis,,"EXCLUDED: genus-level class, mixed species",excluded,Black Phoebe,yes
+102,Sayornis,,"EXCLUDED: genus-level class, mixed species",excluded,,yes
 103,American_Pipit,13732,Anthus rubescens,exact,American Pipit,
 104,Whip_poor_Will,199837,Antrostomus vociferus,manual,Eastern Whip-poor-will,
 105,Horned_Puffin,4508,Fratercula corniculata,exact,Horned Puffin,

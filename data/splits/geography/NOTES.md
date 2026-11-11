@@ -14,3 +14,4 @@ Run from the repo root.
 - species_map.csv rows with review=yes need checking: 107, 111 and 198 matched Old World or empty taxa and drop out.
 - unavailable_photos.txt lists photos that returned HTTP 404 at download time (deleted since the metadata snapshot); they are excluded.
 - Subspecies audit: among classes with at least 15% of observations at subspecies rank, only Myrtle_Warbler (100%), Gray_crowned_Rosy_Finch (38%) and Pied_Kingfisher (33%) appear. The audit sees only forms that observers recorded; a regional-form class with no iNaturalist subspecies would not show up.
+- Held-out region: cluster 0 (western North America and Alaska) is set by hand with `--held-out 0`. The automatic rule now picks 0,3, which would add cluster 3 (Europe and northern Asia) to the test set. We keep cluster 0 alone so the test set is one region and the comparison stays east vs west North America.
